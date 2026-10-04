@@ -1,0 +1,69 @@
+# Capacity Exchange — production overlay for docker-compose.yml.
+# Usage (from repo root, on a Docker host):
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
+# Requires: real SECRET_KEY / WEBHOOK_SECRET injected by the deploy
+# environment (NEVER committed); `!reset` needs Docker Compose >= 2.24.
+name: capacity-exchange
+
+x-prod-env: &prod-env
+  APP_ENV: prod
+  CELERY_MODE: celery          # Redis is present in prod; no in-process runner
+
+services:
+  postgres:
+    restart: always
+    ports: !reset []           # never publish the DB port to the host in prod
+    volumes:
+      - pgdata-prod:/var/lib/postgresql/data
+    # Prod should tune: shared_buffers, max_connections via command:
+
+  redis:
+    restart: always
+    ports: !reset []           # never publish Redis to the host in prod
+    volumes:
+      - redisdata-prod:/data
+
+  backend:
+    restart: always
+    env_file: !reset []        # prod supplies all env at deploy time (docker/.env or --env-file)
+    environment:
+      <<: *prod-env
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}            # required — no default in prod
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}    # required — no default in prod
+    ports: !reset []           # expose via reverse proxy/upstream, not host port
+    # Behind a TLS-terminating proxy (not in this file): point the proxy at
+    # backend:8000 and use `docker compose ... --profile public` or an
+    # additional override file that re-publishes BACKEND_HOST_PORT.
+
+  worker:
+    restart: always
+    env_file: !reset []        # prod supplies all env at deploy time
+    environment:
+      <<: *prod-env
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}
+      SKIP_MIGRATIONS: "1"
+    command: ["celery", "-A", "app.workers.celery_app", "worker",
+              "--loglevel=warning", "--concurrency=${WORKER_CONCURRENCY:-2}"]
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
+
+  beat:
+    restart: always
+    env_file: !reset []
+    environment:
+      <<: *prod-env
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}
+      SKIP_MIGRATIONS: "1"
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=warning"]
+    deploy:
+      replicas: 1              # exactly one beat instance
+
+volumes:
+  pgdata-prod:
+  redisdata-prod:

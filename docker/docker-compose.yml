@@ -1,0 +1,120 @@
+# Capacity Exchange — development Docker Compose (production-shaped).
+# NOTE: this dev box has NO Docker; the local path is
+# infrastructure/scripts/dev_up.sh (pgserver + CELERY_MODE=local).
+# Validate without Docker: python -c "import yaml; yaml.safe_load(open('docker/docker-compose.yml', encoding='utf-8'))"
+#
+# Usage (on a Docker host, from repo root):
+#   cp docker/.env.example docker/.env   (optional; defaults are baked in)
+#   docker compose -f docker/docker-compose.yml up --build
+name: capacity-exchange
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-capacity}
+      POSTGRES_USER: ${POSTGRES_USER:-capacity}
+      POSTGRES_PASSWORD: ${POST…ity}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-capacity} -d ${POSTGRES_DB:-capacity}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # All app services load the full CONTRACTS §11 variable set from the
+  # root template, then override what differs inside the compose network.
+  # Copy root .env.example -> .env to change any of them.
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - ../.env.example
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-capacity}:${POSTGRES_PASSWORD:-capacity}@postgres:5432/${POSTGRES_DB:-capacity}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_MODE: celery
+      APP_ENV: ${APP_ENV:-dev}
+      SECRET_KEY: ${SECR…e-me}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,tauri://localhost}
+      WEBHOOK_SECRET: ${WEBH…ret}
+    ports:
+      - "${BACKEND_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - ../.env.example
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-capacity}:${POSTGRES_PASSWORD:-capacity}@postgres:5432/${POSTGRES_DB:-capacity}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_MODE: celery
+      SKIP_MIGRATIONS: "1"
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
+  beat:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - ../.env.example
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-capacity}:${POSTGRES_PASSWORD:-capacity}@postgres:5432/${POSTGRES_DB:-capacity}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_MODE: celery
+      SKIP_MIGRATIONS: "1"
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
+volumes:
+  pgdata:
+  redisdata:

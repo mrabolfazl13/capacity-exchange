@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1
+# Capacity Exchange backend image — FastAPI + SQLAlchemy + Alembic + Celery.
+# Contract with backend agent:
+#   * app package at /app/backend (uvicorn import: app.main:app)
+#   * Celery app module:      app.workers.celery_app   (CONTRACTS §10)
+#   * deps file:              backend/requirements.txt (psycopg3, alembic, celery)
+#   * health endpoints:       /health /health/live /health/ready (CONTRACTS §1)
+FROM python:3.12-slim AS builder
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+# Build toolchain for psycopg3 (non-binary) and other sdist deps.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt /tmp/requirements.txt
+RUN pip install --prefix=/install -r /tmp/requirements.txt
+
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/usr/local/bin:$PATH"
+
+# Runtime: libpq for psycopg3; non-root service user.
+RUN apt-get update && apt-get install -y --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g 10001 app \
+    && useradd -m -u 10001 -g app -s /usr/sbin/nologin app
+
+COPY --from=builder /install /usr/local
+
+WORKDIR /app/backend
+COPY --chown=app:app backend/ ./
+COPY --chown=app:app docker/entrypoints/backend-entrypoint.sh /entrypoint.sh
+RUN chmod 755 /entrypoint.sh
+
+# Keep alembic/uvicorn importable as CLIs from the app package.
+ENV PYTHONPATH=/app/backend
+
+USER app
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=4)" || exit 1
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
