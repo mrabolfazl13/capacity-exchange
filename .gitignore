@@ -1,0 +1,52 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+.idea/
+*.iml
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Env & secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Node / web
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+
+# Rust / Tauri
+target/
+src-tauri/gen/
+
+# Flutter / Android
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+android/.gradle/
+android/local.properties
+ios/Pods/
+ios/.symlinks/
+*.keystore
+!debug.keystore
+
+# Local databases / data dirs
+.pgdata/
+.pgdata-test/
