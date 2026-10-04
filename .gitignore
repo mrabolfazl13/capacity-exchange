@@ -50,3 +50,7 @@ ios/.symlinks/
 # Local databases / data dirs
 .pgdata/
 .pgdata-test/
+
+# Dev stack runtime (pids, logs, pgserver cluster) — see infrastructure/scripts/dev_up.sh
+.run/
+*.pyc.tmp

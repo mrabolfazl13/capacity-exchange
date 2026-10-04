@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capacityexchange-backend"
+version = "0.1.0"
+description = "Capacity Exchange marketplace backend (FastAPI + SQLAlchemy async + PostgreSQL 16)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141",
+    "pydantic>=2.13",
+    "pydantic-settings",
+    "SQLAlchemy>=2.0.52",
+    "alembic>=1.19",
+    "psycopg[binary]>=3.2",
+    "PyJWT",
+    "argon2-cffi",
+    "redis>=5",
+    "httpx",
+    "python-multipart",
+    "email-validator",
+    "anyio",
+    "greenlet",
+    "uvicorn",
+    "celery",
+    "pgserver",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*", "jobs*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "slow: real migration round-trip tests (upgrade/downgrade/upgrade)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
