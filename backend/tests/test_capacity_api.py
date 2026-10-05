@@ -15,12 +15,13 @@ async def make_provider(client, email: str, name: str = "Room Owner") -> dict:
 
 async def make_resource(client, tokens: dict, *, name: str = "North Room",
                        category_key: str = "meeting_room", headers: dict | None = None,
-                       definitions: list | None = None) -> dict:
+                       definitions: list | None = None,
+                       city: str = "Tehran", country: str = "IR") -> dict:
     cats = await client.get("/catalog/categories", headers=headers or auth(tokens))
     category_id = next(c["id"] for c in cats.json()["items"] if c["key"] == category_key)
     body = {
         "name": name, "category_id": category_id, "capacity_mode": "scheduled",
-        "address": {"line1": "1 Test St", "city": "Tehran", "country": "IR"},
+        "address": {"line1": "1 Test St", "city": city, "country": country},
         "timezone": "UTC", "attributes": {"capacity_persons": 8},
     }
     if definitions:
