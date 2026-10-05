@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import smtplib
+import ssl
 import uuid
 from datetime import datetime, timezone
 from email.message import EmailMessage
@@ -190,25 +191,24 @@ async def send_pending(session: AsyncSession, settings: Settings | None = None,
 
     stats = {"sent": 0, "no_op": 0}
     for row in pending:
+        addr = None
         if row.channel == "email" and settings.smtp_host:
             addr = (
                 await session.execute(select(User.email).where(User.id == row.user_id))
             ).scalar_one_or_none()
-            delivered = False
-            if addr:
-                try:
-                    await anyio.to_thread.run_sync(
-                        partial(_send_email, settings, addr, row.title, row.body))
-                    delivered = True
-                    stats["sent"] += 1
-                except (OSError, smtplib.SMTPException) as exc:
-                    logger.warning("email delivery failed notification=%s: %s", row.id, exc)
-            if not delivered:
-                row.sent_at = now  # recorded, not retried forever — in_app copy still exists
+        if addr:
+            try:
+                await anyio.to_thread.run_sync(
+                    partial(_send_email, settings, addr, row.title, row.body))
+                row.sent_at = now
+                stats["sent"] += 1
                 continue
-        if row.sent_at is None:
-            row.sent_at = now
-            stats["no_op"] += 1
+            except (OSError, smtplib.SMTPException) as exc:
+                logger.warning("email delivery failed notification=%s: %s", row.id, exc)
+        # No mail infrastructure, or the send failed: the row is recorded rather than retried
+        # forever, because the in_app copy is what clients actually read.
+        row.sent_at = now
+        stats["no_op"] += 1
     if pending:
         await session.flush()
     return stats

@@ -161,6 +161,10 @@ class ConversationCreateInput(ORMModel):
     initial_body: str | None = Field(default=None, max_length=4000)
 
 
+class ConversationStatusInput(ORMModel):
+    status: ConversationStatus
+
+
 class MessageOut(ORMModel):
     id: WireUUID
     conversation_id: WireUUID

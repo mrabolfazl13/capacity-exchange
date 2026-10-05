@@ -13,9 +13,11 @@ from app.api.v1 import (
     bookings,
     capacity,
     commerce,
+    conversations,
     disputes,
     marketplace,
     matching,
+    notifications,
     organizations,
     reviews,
 )
@@ -31,3 +33,5 @@ router.include_router(bookings.router)
 router.include_router(commerce.router)
 router.include_router(reviews.router)
 router.include_router(disputes.router)
+router.include_router(conversations.router)
+router.include_router(notifications.router)
