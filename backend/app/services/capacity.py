@@ -240,15 +240,21 @@ async def active_bookings_in_range(session: AsyncSession, definition_id: uuid.UU
 
 
 async def free_quantity_for_window(session: AsyncSession, definition: CapacityDefinition,
-                                   window: Window) -> int:
-    booked = await committed_quantity(session, definition.id, window.start, window.end)
+                                   window: Window, *,
+                                   exclude_booking_id: uuid.UUID | None = None) -> int:
+    booked = await committed_quantity(session, definition.id, window.start, window.end,
+                                      exclude_booking_id=exclude_booking_id)
     return max(0, min(definition.max_quantity, window.quantity) - booked)
 
 
 async def expand_free_windows(session: AsyncSession, definition: CapacityDefinition,
-                              resource: CapacityResource, start: datetime,
-                              end: datetime) -> list[Window]:
-    """Concrete free windows in [start, end), each with remaining quantity after bookings."""
+                              resource: CapacityResource, start: datetime, end: datetime,
+                              *, exclude_booking_id: uuid.UUID | None = None) -> list[Window]:
+    """Concrete free windows in [start, end), each with remaining quantity after bookings.
+
+    `exclude_booking_id` lets a hold conversion revalidate without counting its own hold as
+    somebody else's reservation.
+    """
     tz = tz_of(resource.timezone)
     from_day = to_utc(start).astimezone(tz).date()
     to_day = to_utc(end).astimezone(tz).date()
@@ -259,7 +265,8 @@ async def expand_free_windows(session: AsyncSession, definition: CapacityDefinit
             s, e = max(w.start, to_utc(start)), min(w.end, to_utc(end))
             if s >= e:
                 continue
-            free = await free_quantity_for_window(session, definition, Window(s, e, w.quantity))
+            free = await free_quantity_for_window(session, definition, Window(s, e, w.quantity),
+                                                 exclude_booking_id=exclude_booking_id)
             if free > 0:
                 out.append(Window(s, e, free))
     out.sort(key=lambda w: (w.start, w.end))

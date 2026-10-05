@@ -31,10 +31,19 @@ class HoldRequest(ORMModel):
         return v
 
 
-class BookingCreate(HoldRequest):
-    """`hold_id` converts an existing hold; otherwise the fields create a booking directly."""
+class BookingCreate(ORMModel):
+    """`hold_id` converts an existing hold; otherwise the window fields book directly.
+
+    Everything is optional here because the two shapes are alternatives — the service
+    answers 400 when neither pair is complete, so the DTO must not pre-empt it with 422.
+    """
 
     hold_id: UUID | None = None
+    offer_id: UUID | None = None
+    window_start: WireDateTime | None = None
+    window_end: WireDateTime | None = None
+    quantity: int = Field(default=1, ge=1)
+    request_fingerprint: UUID | None = None
 
 
 class BookingOut(ORMModel):
@@ -67,6 +76,7 @@ class BookingOut(ORMModel):
     offer: OfferOut | None = None
     fulfillment: FulfillmentOut | None = None
     order: OrderOut | None = None
+    order_id: WireUUID | None = None
     review_submitted: bool = False
     # Detail-view convenience so the UI can render context without extra round-trips.
     offer_title: str | None = None

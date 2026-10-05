@@ -304,19 +304,9 @@ async def _settle(session: AsyncSession, payment: Payment, *, settings: Settings
                      data={"order_id": str(order.id), "payment_id": str(payment.id)})
 
     if order.booking_id:
-        has_fulfillment = (
-            await session.execute(
-                select(func.count()).select_from(Fulfillment).where(
-                    Fulfillment.booking_id == order.booking_id)
-            )
-        ).scalar_one()
-        if not has_fulfillment:
-            booking = await session.get(Booking, order.booking_id)
-            if booking is not None:
-                session.add(Fulfillment(booking_id=booking.id, org_id=booking.org_id,
-                                        status="pending", started_at=now,
-                                        notes=[{"body": reason, "author_id": None,
-                                                "created_at": now.isoformat()}]))
+        booking = await session.get(Booking, order.booking_id)
+        if booking is not None:
+            await ensure_fulfillment(session, booking, reason=reason)
     await session.flush()
     await record_audit(session, request, action="payment.succeeded", entity_type="payment",
                        entity_id=payment.id, after=outcome)
@@ -514,6 +504,26 @@ async def payments_for_order(session: AsyncSession, order_id: uuid.UUID) -> list
             .order_by(Payment.created_at)
         )
     ).scalars().all())
+
+
+async def ensure_fulfillment(session: AsyncSession, booking: Booking, *,
+                             reason: str = "booking confirmed") -> Fulfillment:
+    """One fulfilment record per booking, created when the booking goes live.
+
+    Payment is not the only way a booking becomes real: a free or on-site-payment booking
+    still needs the operational record the provider starts, notes and completes.
+    """
+    existing = await fulfillment_for_booking(session, booking.id)
+    if existing is not None:
+        return existing
+    now = utcnow()
+    fulfillment = Fulfillment(booking_id=booking.id, org_id=booking.org_id, status="pending",
+                              started_at=now,
+                              notes=[{"body": reason, "author_id": None,
+                                      "created_at": now.isoformat()}])
+    session.add(fulfillment)
+    await session.flush()
+    return fulfillment
 
 
 async def fulfillment_for_booking(session: AsyncSession,

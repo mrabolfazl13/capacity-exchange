@@ -50,6 +50,11 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _wire(value: datetime) -> str:
+    """§1 timestamp shape for error payloads too: a `+00:00` is a second format clients must not parse."""
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
 async def lock_definition(session: AsyncSession, definition_id: uuid.UUID) -> None:
     """Transaction-scoped advisory lock; released automatically at commit/rollback."""
     await session.execute(
@@ -124,17 +129,19 @@ def _validate_request_window(offer: Offer, definition: CapacityDefinition,
 
 async def _ensure_window_open(session: AsyncSession, offer: Offer,
                               definition: CapacityDefinition, resource: CapacityResource,
-                              start: datetime, end: datetime) -> None:
+                              start: datetime, end: datetime, *,
+                              exclude_booking_id: uuid.UUID | None = None) -> None:
     """The requested range must sit inside a single published availability window."""
-    windows = await cap.expand_free_windows(session, definition, resource, start, end)
+    windows = await cap.expand_free_windows(session, definition, resource, start, end,
+                                             exclude_booking_id=exclude_booking_id)
     for w in windows:
         if w.start <= start and end <= w.end:
             return
     raise NoAvailability(
         "The requested time is outside the published availability for this capacity",
-        details={"window_start": start.isoformat(), "window_end": end.isoformat(),
-                 "available": [{"start": w.start.isoformat(), "end": w.end.isoformat(),
-                                "free_quantity": w.quantity} for w in windows[:5]]})
+        details={"window_start": _wire(start), "window_end": _wire(end),
+                 "available": [{"start": _wire(w.start), "end": _wire(w.end),
+                               "free_quantity": w.quantity} for w in windows[:5]]})
 
 
 async def _reserve(session: AsyncSession, *, offer: Offer, definition: CapacityDefinition,
@@ -143,13 +150,16 @@ async def _reserve(session: AsyncSession, *, offer: Offer, definition: CapacityD
                    created_by: uuid.UUID, org_id: uuid.UUID,
                    request_fingerprint: uuid.UUID | None,
                    hold_minutes: int, meta: dict[str, Any],
-                   request: Request | None) -> Booking:
+                   request: Request | None,
+                   exclude_booking_id: uuid.UUID | None = None) -> Booking:
     """Lock -> revalidate -> insert, all in the caller's transaction (§5.5 steps 1-4)."""
     await lock_definition(session, definition.id)
 
-    await _ensure_window_open(session, offer, definition, resource, start, end)
+    await _ensure_window_open(session, offer, definition, resource, start, end,
+                              exclude_booking_id=exclude_booking_id)
 
-    booked = await cap.committed_quantity(session, definition.id, start, end)
+    booked = await cap.committed_quantity(session, definition.id, start, end,
+                                          exclude_booking_id=exclude_booking_id)
     ceiling = definition.max_quantity
     requested_total = booked + quantity
     if requested_total > ceiling:
@@ -260,6 +270,9 @@ async def create_booking(session: AsyncSession, *, customer_id: uuid.UUID,
             request_fingerprint=None, hold_minutes=offer.hold_minutes,
             meta={"source": "hold_conversion", "hold_id": str(hold.id),
                   "match_id": str(source_match_id) if source_match_id else None},
+            # The hold's own units are the ones being converted; counting them as foreign
+            # demand would refuse the customer their own reservation.
+            exclude_booking_id=hold.id,
             request=request)
         booked.source_match_id = source_match_id
         booked.payment_status = hold.payment_status
@@ -330,6 +343,33 @@ async def transition(session: AsyncSession, booking: Booking, to_status: str, *,
     return booking
 
 
+async def confirm_request(session: AsyncSession, booking: Booking, *,
+                          actor_user_id: uuid.UUID,
+                          request: Request | None = None) -> Booking:
+    """Revalidate before a hold or a draft becomes confirmed (§5.5 step 5).
+
+    A `draft` is not counted as committed capacity, so provider acceptance is exactly where an
+    over-subscribed slot must still be refused instead of quietly double-booked.
+    """
+    if booking.status not in ("hold", "draft"):
+        return await transition(session, booking, "confirmed", actor_user_id=actor_user_id,
+                                reason="confirmed", request=request)
+    offer, definition, resource = await load_bookable_offer(session, booking.offer_id)
+    await lock_definition(session, definition.id)
+    await _ensure_window_open(session, offer, definition, resource, booking.window_start,
+                              booking.window_end, exclude_booking_id=booking.id)
+    booked = await cap.committed_quantity(session, definition.id, booking.window_start,
+                                          booking.window_end, exclude_booking_id=booking.id)
+    if booked + booking.quantity > definition.max_quantity:
+        error_type = NoAvailability if resource.capacity_mode == "scheduled" else CapacityExceeded
+        raise error_type(
+            "The capacity requested is no longer available",
+            details={"max_quantity": definition.max_quantity, "committed": booked,
+                     "requested": booking.quantity})
+    return await transition(session, booking, "confirmed", actor_user_id=actor_user_id,
+                            reason="confirmed after capacity revalidation", request=request)
+
+
 async def _mark_expired(session: AsyncSession, booking: Booking, *,
                         actor_user_id: uuid.UUID | None, reason: str) -> None:
     """CAS flip: only a row still in 'hold' is expired, so concurrent sweeps are harmless."""
@@ -372,7 +412,7 @@ async def cancel(session: AsyncSession, booking: Booking, *, actor_user_id: uuid
     """
     from app.services.commerce import refund_for_cancellation
 
-    if booking.status in ("cancelled", "expired", "completed"):
+    if "cancelled" not in BOOKING_TRANSITIONS.get(booking.status, frozenset()):
         raise InvalidStateTransition(f"A '{booking.status}' booking cannot be cancelled")
     offer = await session.get(Offer, booking.offer_id)
     hours_before = (booking.window_start - utcnow()).total_seconds() / 3600
