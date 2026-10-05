@@ -39,6 +39,7 @@ class OrderOut(ORMModel):
     discount_cents: int
     commission_cents: int
     total_cents: int
+    refunded_cents: int
     currency: str
     line_items: list[OrderLineItem] = []
     payment_status: OrderPaymentStatus
@@ -62,9 +63,20 @@ class PaymentOut(ORMModel):
     created_at: WireDateTime
 
 
+class OrderCreateInput(ORMModel):
+    """§5.7 idempotent `POST /orders`: open the order that carries a live booking."""
+
+    booking_id: UUID
+    coupon_code: str | None = Field(default=None, min_length=3, max_length=64)
+
+
 class PaymentIntentInput(ORMModel):
     order_id: UUID
     provider_key: str = Field(default="mock", min_length=1, max_length=32)
+
+
+class FulfillmentNoteInput(ORMModel):
+    body: str = Field(min_length=1, max_length=4000)
 
 
 class FulfillmentNote(ORMModel):

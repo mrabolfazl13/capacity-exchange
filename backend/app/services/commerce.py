@@ -156,6 +156,10 @@ async def create_order(session: AsyncSession, *, booking: Booking, offer: Offer 
     """Open the order that carries a booking's money (§5.6: automatic on confirm)."""
     existing = await order_for_booking(session, booking.id)
     if existing is not None:
+        if coupon_code:
+            # A placed order already fixed its price; re-quoting a coupon would be a silent no-op.
+            raise Conflict("Order already exists for this booking and cannot be re-couponed",
+                           details={"order_id": str(existing.id)})
         return existing
     offer = offer or await session.get(Offer, booking.offer_id)
     if offer is None:
@@ -166,7 +170,6 @@ async def create_order(session: AsyncSession, *, booking: Booking, offer: Offer 
         session, code=coupon_code, buyer_id=buyer_id,
         subtotal_cents=subtotal, currency=booking.currency)
     total = max(0, subtotal - discount)
-    rate_bp = offer.commission_rate_bp if offer.commission_rate_bp is not None else None
     order = Order(
         number=_order_number(utcnow()),
         buyer_id=buyer_id,
@@ -265,7 +268,7 @@ async def _settle(session: AsyncSession, payment: Payment, *, settings: Settings
         payment.status = "succeeded"
         payment.confirmed_at = now
         payment.provider_payment_id = payment.provider_payment_id or \
-            f"{payment.provider_key}_{uuid.UUID(secrets.token_hex(8)).hex[:16]}"
+            f"{payment.provider_key}_{secrets.token_hex(8)}"
 
     if order.status in ("draft", "placed"):
         order.payment_status = "paid"
@@ -361,11 +364,11 @@ def verify_webhook_signature(raw_body: bytes, header: str | None, secret: str) -
     return payload
 
 
-async def handle_webhook(session: AsyncSession, *, payload: dict[str, Any], settings: Settings,
+async def handle_webhook(session: AsyncSession, *, settings: Settings,
                          raw_body: bytes, signature: str | None,
                          request: Request | None = None) -> dict[str, Any]:
     """§5.6 webhook: verified, stored in `payment_events`, replayed safely (§5.7 idempotency)."""
-    verify_webhook_signature(raw_body, signature, settings.webhook_secret)
+    payload = verify_webhook_signature(raw_body, signature, settings.webhook_secret)
     event_type = str(payload.get("type") or "")
     event_key = str(payload.get("id") or "")
     payment_ref = str(payload.get("payment_id") or "")
@@ -438,6 +441,7 @@ async def _apply_refund(session: AsyncSession, payment: Payment, *, amount_cents
         order.payment_status = "refunded"
         if order.status in ("draft", "placed", "paid"):
             order.status = "refunded"
+        await _sync_booking_refund_state(session, order)
         await session.flush()
         return None
     order.refunded_cents += amount
@@ -451,8 +455,19 @@ async def _apply_refund(session: AsyncSession, payment: Payment, *, amount_cents
                     currency=order.currency, reason=reason[:2000], status=status,
                     processed_by=actor_user_id, processed_at=utcnow() if status != "pending" else None)
     session.add(refund)
+    await _sync_booking_refund_state(session, order)
     await session.flush()
     return refund
+
+
+async def _sync_booking_refund_state(session: AsyncSession, order: Order) -> None:
+    """The booking shows the refund the order carries, whoever moved the money."""
+    if order.booking_id is None:
+        return
+    booking = await session.get(Booking, order.booking_id)
+    if booking is None or order.payment_status == "unpaid":
+        return
+    booking.payment_status = order.payment_status
 
 
 async def refund_for_cancellation(session: AsyncSession, booking: Booking, *,
@@ -474,25 +489,31 @@ async def refund_for_cancellation(session: AsyncSession, booking: Booking, *,
                                  reason=f"cancellation policy ({pct}% at "
                                         f"{round(hours_before, 1)}h before start)",
                                  actor_user_id=actor_user_id)
-    if refund is None:
-        return 0
-    booking.payment_status = "refunded" if order.payment_status == "refunded" \
-        else "partially_refunded"
-    await session.flush()
-    return refund.amount_cents
+    return refund.amount_cents if refund else 0
 
 
 async def list_orders_for_actor(session: AsyncSession, *, user_id: uuid.UUID,
                                 org_ids: set[uuid.UUID], is_platform_admin: bool,
+                                provider: bool = False, status: str | None = None,
+                                payment_status: str | None = None,
                                 limit: int = 20, offset: int = 0) -> tuple[list[Order], int]:
+    """`provider=true` is the organization workspace; the default is the buyer's own orders."""
     stmt = select(Order)
     if not is_platform_admin:
-        stmt = stmt.where((Order.buyer_id == user_id) | (Order.provider_org_id.in_(org_ids)))
+        if provider:
+            stmt = stmt.where(Order.provider_org_id.in_(org_ids))
+        else:
+            stmt = stmt.where(Order.buyer_id == user_id)
+    if status:
+        stmt = stmt.where(Order.status == status)
+    if payment_status:
+        stmt = stmt.where(Order.payment_status == payment_status)
     total = (
         await session.execute(select(func.count()).select_from(stmt.subquery()))
     ).scalar_one()
     items = list((
-        await session.execute(stmt.order_by(Order.created_at.desc()).limit(limit).offset(offset))
+        await session.execute(stmt.order_by(Order.created_at.desc(), Order.id)
+                              .limit(limit).offset(offset))
     ).scalars().all())
     return items, total
 
@@ -533,6 +554,13 @@ async def fulfillment_for_booking(session: AsyncSession,
             select(Fulfillment).where(Fulfillment.booking_id == booking_id).limit(1)
         )
     ).scalar_one_or_none()
+
+
+async def load_fulfillment(session: AsyncSession, fulfillment_id: uuid.UUID) -> Fulfillment:
+    fulfillment = await session.get(Fulfillment, fulfillment_id)
+    if fulfillment is None:
+        raise NotFound("Fulfillment not found")
+    return fulfillment
 
 
 async def add_fulfillment_note(session: AsyncSession, fulfillment: Fulfillment, *,
