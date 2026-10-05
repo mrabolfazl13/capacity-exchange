@@ -98,7 +98,8 @@ class FulfillmentOut(ORMModel):
 
 class ReviewInput(ORMModel):
     booking_id: UUID
-    fulfillment_id: UUID
+    # The fulfilment is derived from the booking; clients that already hold the id may pin it.
+    fulfillment_id: UUID | None = None
     rating: int = Field(ge=1, le=5)
     comment: str | None = Field(default=None, max_length=4000)
 
@@ -184,6 +185,8 @@ class DisputeCreateInput(ORMModel):
 class DisputeResolveInput(ORMModel):
     status: DisputeStatus
     resolution_note: str = Field(min_length=3, max_length=4000)
+    # Only meaningful for resolved_partial; a full refund is whatever the order still holds.
+    refund_cents: int | None = Field(default=None, ge=0)
 
 
 class DisputeOut(ORMModel):
@@ -198,6 +201,7 @@ class DisputeOut(ORMModel):
     resolved_by: WireUUID | None
     resolved_at: WireDateTime | None
     created_at: WireDateTime
+    refund_cents: int = 0
     complainant_name: str | None = None
     org_name: str | None = None
 

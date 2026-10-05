@@ -13,9 +13,11 @@ from app.api.v1 import (
     bookings,
     capacity,
     commerce,
+    disputes,
     marketplace,
     matching,
     organizations,
+    reviews,
 )
 
 router = APIRouter()
@@ -27,3 +29,5 @@ router.include_router(marketplace.router)
 router.include_router(matching.router)
 router.include_router(bookings.router)
 router.include_router(commerce.router)
+router.include_router(reviews.router)
+router.include_router(disputes.router)

@@ -492,6 +492,31 @@ async def refund_for_cancellation(session: AsyncSession, booking: Booking, *,
     return refund.amount_cents if refund else 0
 
 
+async def refund_for_dispute(session: AsyncSession, booking: Booking, *, amount_cents: int,
+                             actor_user_id: uuid.UUID, reason: str) -> int:
+    """Refund decided by a dispute resolution rather than the cancellation policy (§5.6).
+
+    Unlike `refund_for_cancellation` the amount is what the resolver wrote down, still clamped
+    to what the order actually holds, so a resolution can never invent refundable money.
+    """
+    if amount_cents <= 0:
+        return 0
+    order = await order_for_booking(session, booking.id)
+    if order is None:
+        return 0
+    payment = await _active_payment(session, order.id)
+    if payment is None or payment.status != "succeeded":
+        return 0
+    refund = await _apply_refund(session, payment, amount_cents=amount_cents, reason=reason,
+                                 actor_user_id=actor_user_id)
+    return refund.amount_cents if refund else 0
+
+
+async def outstanding_cents(session: AsyncSession, booking: Booking) -> int:
+    order = await order_for_booking(session, booking.id)
+    return 0 if order is None else max(0, order.total_cents - order.refunded_cents)
+
+
 async def list_orders_for_actor(session: AsyncSession, *, user_id: uuid.UUID,
                                 org_ids: set[uuid.UUID], is_platform_admin: bool,
                                 provider: bool = False, status: str | None = None,
