@@ -35,7 +35,9 @@ def _fmt_dt(value: datetime | None) -> str | None:
         return None
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    # §1: ISO-8601 UTC with a literal Z. Second precision keeps one canonical shape for
+    # every timestamp on the wire instead of leaking whatever the driver rounded.
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _fmt_date(value: date | None) -> str | None:
@@ -43,7 +45,7 @@ def _fmt_date(value: date | None) -> str | None:
 
 
 def _fmt_time(value: time | None) -> str | None:
-    return value.isoformat() if value is not None else None
+    return value.isoformat(timespec="seconds") if value is not None else None
 
 
 WireDateTime = Annotated[datetime, PlainSerializer(_fmt_dt, return_type=str, when_used="json")]

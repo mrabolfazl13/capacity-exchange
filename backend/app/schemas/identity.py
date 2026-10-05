@@ -108,11 +108,15 @@ class RegisterInput(ORMModel):
     preferred_locale: str = Field(default="en", max_length=8)
     account_type: Literal["customer", "provider"] | None = None
     organization: OrganizationInput | None = None
+    roles: list[Literal["customer", "provider"]] | None = None
 
     @model_validator(mode="after")
     def _infer_account_type(self) -> "RegisterInput":
         if self.account_type is None:
-            self.account_type = "provider" if self.organization is not None else "customer"
+            self.account_type = ("provider" if self.organization or "provider" in (self.roles or [])
+                                 else "customer")
+        if self.organization is not None:
+            self.account_type = "provider"
         return self
 
     @property

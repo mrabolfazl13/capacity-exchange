@@ -28,6 +28,11 @@ class Base(DeclarativeBase):
 
 
 class TimestampMixin:
+    # eager_defaults makes flush() emit RETURNING for the DB-side defaults and the
+    # `onupdate` expression, so no attribute is left expired for a synchronous
+    # serializer to lazy-load later (that would raise MissingGreenlet under asyncio).
+    __mapper_args__ = {"eager_defaults": True}
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

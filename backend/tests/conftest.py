@@ -141,8 +141,12 @@ async def db(app, client):
 
 @pytest.fixture(autouse=True)
 def clean_db(pg_url: str):
-    """TRUNCATE everything between tests: FK-cascade with identities restarted."""
+    """TRUNCATE everything between tests, then restore the §5.2 category registry."""
+    import json
+
     import psycopg
+
+    from app.services.catalog import CATEGORIES
 
     tables = []
     dsn = _sync_dsn(pg_url)
@@ -154,4 +158,10 @@ def clean_db(pg_url: str):
         if tables:
             joined = ", ".join(f'"{t}"' for t in tables)
             conn.execute(f"TRUNCATE {joined} RESTART IDENTITY CASCADE")
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO capacity_categories (key, label, attributes_schema) "
+                "VALUES (%s, %s, %s::jsonb)",
+                [(c["key"], c["label"], json.dumps(c["attributes_schema"]))
+                 for c in CATEGORIES])
     yield
