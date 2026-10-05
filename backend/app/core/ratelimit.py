@@ -79,6 +79,11 @@ class RateLimiter:
                 logger.warning("ratelimit: Redis unreachable (%s); falling back to in-memory buckets", exc)
                 self._redis = None
 
+    @property
+    def using_redis(self) -> bool:
+        """True only when a Redis ping succeeded at startup; readiness ignores this (§10)."""
+        return self._redis is not None
+
     def allow(self, key: str) -> tuple[bool, float]:
         if self._redis is not None:
             try:

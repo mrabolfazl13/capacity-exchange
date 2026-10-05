@@ -7,6 +7,7 @@ correct outcome when a refresh token has leaked.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -36,11 +37,11 @@ from app.core.security import (
 from app.models.identity import OrgStaff, Organization, Session, Tenant, User, UserRole
 from app.schemas.identity import (
     OrganizationInput,
-    RegisterCustomerInput,
-    RegisterProviderInput,
+    RegisterInput,
 )
 
 DEFAULT_TENANT_KEY = "default"
+logger = logging.getLogger("capacityexchange.auth")
 PROVIDER_ROLES = ("org_admin", "provider")
 CUSTOMER_ROLES: tuple[str, ...] = ()  # `customer` is implicit for every user (§4)
 
@@ -133,7 +134,7 @@ async def issue_session(
     return access, refresh_plain, expires_at
 
 
-async def register(session: AsyncSession, settings: Settings, payload: Any,
+async def register(session: AsyncSession, settings: Settings, payload: RegisterInput,
                    request: Request | None = None) -> dict:
     """Public registration for both account types; provider also creates its organization."""
     email = payload.email.lower().strip()
@@ -155,8 +156,9 @@ async def register(session: AsyncSession, settings: Settings, payload: Any,
     await session.flush()
 
     org_id: uuid.UUID | None = None
-    if isinstance(payload, RegisterProviderInput) and payload.organization is not None:
-        org = await create_organization(session, user, payload.organization, tenant.id)
+    if payload.is_provider:
+        organization = payload.organization or OrganizationInput(name=payload.full_name)
+        org = await create_organization(session, user, organization, tenant.id)
         org_id = org.id
         for role in PROVIDER_ROLES:
             session.add(UserRole(user_id=user.id, role=role, granted_by=user.id))
@@ -246,11 +248,18 @@ async def refresh(session: AsyncSession, settings: Settings, refresh_token: str,
     ).scalar_one_or_none()
     if row is None:
         raise Unauthorized("Refresh token is not recognised")
+    if row.refreshed_at is not None:
+        # Checked before `revoked_at`: rotation marks the old row both ways, so a replay
+        # of a rotated token must reach this branch to revoke the rest of the family (§3).
+        revoked = await revoke_family(session, row.family)
+        # Committed here on purpose: the request still answers 401, and the session
+        # dependency rolls back on exceptions — a revocation must survive that rollback.
+        await session.commit()
+        logger.warning("refresh token replay detected: user=%s family=%s revoked=%d session(s)",
+                       row.user_id, row.family, revoked)
+        raise SessionRevoked("Refresh token was already used; all sessions in this family were revoked")
     if row.revoked_at is not None:
         raise SessionRevoked("Session has been revoked")
-    if row.refreshed_at is not None:
-        await revoke_family(session, row.family)
-        raise SessionRevoked("Refresh token was already used; all sessions in this family were revoked")
     if row.expires_at <= datetime.now(timezone.utc):
         raise SessionRevoked("Refresh token has expired")
 

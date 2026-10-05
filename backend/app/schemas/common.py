@@ -6,13 +6,28 @@ rather than repeated per schema.
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, time, timezone
-from typing import Annotated, Generic, TypeVar
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, PlainSerializer
+from pydantic import BaseModel, ConfigDict, AfterValidator, PlainSerializer
 
-T = TypeVar("T")
+#: Deliberately accepts reserved/special-use domains: CONTRACTS §9 seeds accounts on
+#: `.test` and the E2E harness registers `@e2e.test`, which pydantic's built-in EmailStr
+#: rejects. Uniqueness is enforced by the database, not by TLD allow-lists.
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?"
+                      r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)+$")
+
+
+def normalize_email(value: str) -> str:
+    cleaned = value.strip().lower()
+    if not EMAIL_RE.match(cleaned):
+        raise ValueError("value is not a valid email address")
+    return cleaned
+
+
+EmailField = Annotated[str, AfterValidator(normalize_email)]
 
 
 def _fmt_dt(value: datetime | None) -> str | None:
@@ -43,32 +58,6 @@ class ORMModel(BaseModel):
 
 class InputModel(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-
-
-class ListEnvelope(BaseModel, Generic[T]):
-    items: list[T]
-    total: int
-    limit: int
-    offset: int
-
-
-def envelope(items: list[T], total: int, limit: int, offset: int) -> ListEnvelope[T]:
-    return ListEnvelope(items=items, total=total, limit=limit, offset=offset)
-
-
-class PageParams(BaseModel):
-    """`limit` clamped to 100 per §2; oversized requests are narrowed, never rejected."""
-
-    limit: int = 20
-    offset: int = 0
-
-    @property
-    def clamped_limit(self) -> int:
-        return max(1, min(100, self.limit))
-
-    @property
-    def safe_offset(self) -> int:
-        return max(0, self.offset)
 
 
 class Address(BaseModel):

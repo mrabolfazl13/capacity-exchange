@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import EmailStr, Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
-from app.schemas.common import Address, ORMModel, WireDateTime, WireUUID
+from app.schemas.common import Address, EmailField, ORMModel, WireDateTime, WireUUID
 
 RoleKey = Literal["platform_admin", "support", "org_admin", "provider", "customer"]
 OrgStaffRole = Literal["org_admin", "manager", "staff"]
@@ -53,8 +53,12 @@ class RegisterResponse(TokenPair):
 
 
 class LoginInput(ORMModel):
-    email: EmailStr
+    email: EmailField
     password: str = Field(min_length=1, max_length=256)
+
+
+class RefreshInput(ORMModel):
+    refresh_token: str = Field(min_length=16, max_length=512)
 
 
 class OrganizationInput(ORMModel):
@@ -64,7 +68,7 @@ class OrganizationInput(ORMModel):
     country: str | None = Field(default=None, min_length=2, max_length=2)
     timezone: str = "UTC"
     currency: str = Field(default="USD", min_length=3, max_length=3)
-    contact_email: EmailStr | None = None
+    contact_email: EmailField | None = None
     phone: str | None = Field(default=None, max_length=32)
     address: Address | None = None
 
@@ -89,23 +93,31 @@ class OrganizationInput(ORMModel):
         return v
 
 
-class RegisterCustomerInput(ORMModel):
-    email: EmailStr
+class RegisterInput(ORMModel):
+    """One public register endpoint for both account types (§3).
+
+    `account_type` is explicit from the desktop client; the E2E harness and any client
+    that only sends `organization` still means provider, so the presence of an
+    organization infers it rather than silently creating an org-less provider.
+    """
+
+    email: EmailField
     password: str = Field(min_length=8, max_length=256)
     full_name: str = Field(min_length=2, max_length=200)
     phone: str | None = Field(default=None, max_length=32)
     preferred_locale: str = Field(default="en", max_length=8)
+    account_type: Literal["customer", "provider"] | None = None
+    organization: OrganizationInput | None = None
 
-    @field_validator("email", mode="before")
-    @classmethod
-    def _normalize_email(cls, v: str) -> str:
-        # citext is unavailable on this Postgres build, so §5.1 normalises in the app.
-        return v.lower().strip() if isinstance(v, str) else v
+    @model_validator(mode="after")
+    def _infer_account_type(self) -> "RegisterInput":
+        if self.account_type is None:
+            self.account_type = "provider" if self.organization is not None else "customer"
+        return self
 
-
-class RegisterProviderInput(RegisterCustomerInput):
-    account_type: Literal["provider"]
-    organization: OrganizationInput
+    @property
+    def is_provider(self) -> bool:
+        return self.account_type == "provider"
 
 
 class LogoutInput(ORMModel):
@@ -128,14 +140,8 @@ class OrgStaffOut(ORMModel):
 
 
 class OrgStaffInput(ORMModel):
-    email: EmailStr
+    email: EmailField
     role: OrgStaffRole = "staff"
-
-    @field_validator("email", mode="before")
-    @classmethod
-    def _normalize_email(cls, v: str) -> str:
-        return v.lower().strip() if isinstance(v, str) else v
-
 
 class AdminUserRow(ORMModel):
     id: WireUUID

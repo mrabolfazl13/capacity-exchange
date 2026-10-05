@@ -31,6 +31,16 @@ target_metadata = Base.metadata
 
 
 def _database_url() -> str:
+    """Precedence: programmatic `-x`/config url > DATABASE_URL > app settings default.
+
+    Tests call `command.upgrade(cfg, "head")` with `sqlalchemy.url` set to the test
+    database; ignoring it would silently migrate the developer's own database instead.
+    """
+    configured = config.get_main_option("sqlalchemy.url")
+    if configured:
+        from app.core.config import Settings
+
+        return Settings(database_url=configured).sqlalchemy_database_url
     env_url = os.environ.get("DATABASE_URL")
     if env_url:
         settings = get_settings_cached().model_copy(update={"database_url": env_url})

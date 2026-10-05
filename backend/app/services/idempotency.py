@@ -129,4 +129,12 @@ def require_key_or_none(header_value: str | None) -> str | None:
     return trimmed[:160] if trimmed else None
 
 
-__all__ = ["IdempotentResult", "claim", "record", "request_hash", "require_key_or_none"]
+async def release(session: AsyncSession, result: IdempotentResult | None) -> None:
+    """Drop an unfinished claim after a failed handler so the client may retry (§5.7)."""
+    if result is None or result.row.completed_at is not None:
+        return
+    await session.delete(result.row)
+    await session.flush()
+
+
+__all__ = ["IdempotentResult", "claim", "record", "release", "request_hash", "require_key_or_none"]
