@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Awaitable, Callable
 
 from fastapi import Depends, Query, Request
@@ -10,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import JSONResponse
 
 from app.core.deps import SessionDep
-from app.core.errors import AppError, ValidationFailed
+from app.core.errors import AppError, RangeMismatch, ValidationFailed
 from app.services import auth as auth_svc
 from app.services import idempotency as idem
 
@@ -91,6 +92,38 @@ ActorDep = Annotated[Actor, Depends(get_actor)]
 
 def idempotency_key(request: Request) -> str | None:
     return idem.require_key_or_none(request.headers.get("Idempotency-Key"))
+
+
+class AttrRow:
+    """Attribute bag, so a computed row can be validated by the same DTO as an ORM entity."""
+
+    def __init__(self, **fields: Any) -> None:
+        self.__dict__.update(fields)
+
+
+def parse_bound(value: str, *, end: bool = False) -> datetime:
+    """Accept `YYYY-MM-DD` or a full ISO-8601 timestamp; a bare date means [00:00, next 00:00)."""
+    raw = value.strip()
+    try:
+        if len(raw) <= 10:
+            day = date.fromisoformat(raw)
+            dt = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+            return dt + timedelta(days=1) if end else dt
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise RangeMismatch(f"Invalid date or timestamp: {value}") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def parse_window(date_from: str, date_to: str, *, max_days: int) -> tuple[datetime, datetime]:
+    start, end = parse_bound(date_from), parse_bound(date_to, end=True)
+    if end <= start:
+        raise RangeMismatch("`to` must be after `from`")
+    if (end - start) > timedelta(days=max_days):
+        raise RangeMismatch(f"Query window is limited to {max_days} days")
+    return start, end
 
 
 async def idempotent_write(

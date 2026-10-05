@@ -7,17 +7,25 @@ deliberately not org-scoped: a customer picking a slot has to see what is left (
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.v1.deps import Actor, ActorDep, PageDep, envelope, idempotent_write
+from app.api.v1.deps import (
+    Actor,
+    ActorDep,
+    AttrRow,
+    PageDep,
+    envelope,
+    idempotent_write,
+    parse_window,
+)
 from app.core.audit import record_audit
 from app.core.deps import SessionDep
-from app.core.errors import Conflict, NotFound, OwnershipRequired, RangeMismatch, ValidationFailed
+from app.core.errors import Conflict, NotFound, OwnershipRequired, ValidationFailed
 from app.models.capacity import (
     AvailabilityOverride,
     CapacityCategory,
@@ -100,31 +108,6 @@ async def _default_definition(resource: CapacityResource,
             "`definition_id` is required: the resource has "
             f"{len(active)} active definition(s)")
     return active[0]
-
-
-def _parse_bound(value: str, *, end: bool = False) -> datetime:
-    """Accept `YYYY-MM-DD` or a full ISO-8601 timestamp; a bare date means [00:00, next 00:00)."""
-    raw = value.strip()
-    try:
-        if len(raw) <= 10:
-            day = date.fromisoformat(raw)
-            dt = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
-            return dt + timedelta(days=1) if end else dt
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise RangeMismatch(f"Invalid date or timestamp: {value}") from exc
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
-
-
-def _window(date_from: str, date_to: str, *, max_days: int) -> tuple[datetime, datetime]:
-    start, end = _parse_bound(date_from), _parse_bound(date_to, end=True)
-    if end <= start:
-        raise RangeMismatch("`to` must be after `from`")
-    if (end - start) > timedelta(days=max_days):
-        raise RangeMismatch(f"Query window is limited to {max_days} days")
-    return start, end
 
 
 # --------------------------------------------------------------------------- catalog
@@ -354,7 +337,7 @@ async def get_availability(resource_id: uuid.UUID, session: SessionDep, actor: A
     resource = await _load_resource(session, resource_id)
     _require_org(actor, resource.org_id)
     definition = await _default_definition(resource, definition_id)
-    start, end = _window(date_from, date_to, max_days=MAX_PLAN_DAYS)
+    start, end = parse_window(date_from, date_to, max_days=MAX_PLAN_DAYS)
     tz = cap.tz_of(resource.timezone)
     from_day = start.astimezone(tz).date()
     to_day = (end - timedelta(microseconds=1)).astimezone(tz).date()
@@ -365,7 +348,7 @@ async def get_availability(resource_id: uuid.UUID, session: SessionDep, actor: A
         day_start, day_end = cap.day_range(plan.day, tz)
         booked = await cap.committed_quantity(session, definition.id, day_start, day_end)
         total = plan.total_quantity
-        days.append(_dump(AvailabilityDay, _Row(
+        days.append(_dump(AvailabilityDay, AttrRow(
             date=plan.day, total_quantity=total, booked_quantity=booked,
             free_quantity=max(0, total - booked), closed=plan.closed)))
 
@@ -387,13 +370,6 @@ async def get_availability(resource_id: uuid.UUID, session: SessionDep, actor: A
             "days": days,
             "recurring": [_dump(RecurringAvailabilityOut, r) for r in rules],
             "overrides": [_dump(AvailabilityOverrideOut, o) for o in overrides]}
-
-
-class _Row:
-    """Plain attribute bag for DTOs that describe computed rows, not ORM entities."""
-
-    def __init__(self, **fields):
-        self.__dict__.update(fields)
 
 
 @router.post("/capacities/{resource_id}/availability", status_code=201)
@@ -513,9 +489,9 @@ async def free_windows(session: SessionDep, actor: ActorDep, definition_id: uuid
                        date_to: Annotated[str, Query(alias="to")]) -> dict:
     """Concrete bookable windows with remaining quantity — the slot picker's source (§5.2)."""
     definition, resource = await _load_definition(session, definition_id)
-    start, end = _window(date_from, date_to, max_days=MAX_FREE_QUERY_DAYS)
+    start, end = parse_window(date_from, date_to, max_days=MAX_FREE_QUERY_DAYS)
     windows = await cap.expand_free_windows(session, definition, resource, start, end)
-    items = [_dump(FreeWindow, _Row(window_start=w.start, window_end=w.end,
+    items = [_dump(FreeWindow, AttrRow(window_start=w.start, window_end=w.end,
                                     free_quantity=w.quantity)) for w in windows]
     return {"items": items, "total": len(items), "limit": len(items), "offset": 0}
 
