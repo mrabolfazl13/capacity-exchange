@@ -7,12 +7,23 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Awaitable, Callable
 
 from fastapi import Depends, Query, Request
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import JSONResponse
 
 from app.core.deps import SessionDep
 from app.core.errors import AppError, RangeMismatch, ValidationFailed
+from app.models.booking import Booking
+from app.models.capacity import CapacityDefinition, CapacityResource
+from app.models.commerce import Order
+from app.models.crosscut import Review
+from app.models.identity import Organization, User
+from app.models.marketplace import Offer
+from app.schemas.booking import BookingOut
+from app.schemas.commerce import FulfillmentOut, OrderOut
+from app.schemas.marketplace import OfferOut
 from app.services import auth as auth_svc
+from app.services import commerce
 from app.services import idempotency as idem
 
 MAX_LIMIT = 100
@@ -155,3 +166,44 @@ async def idempotent_write(
         raise
     await idem.record(session, claim, status=status_code, body=body)
     return JSONResponse(status_code=status_code, content=body)
+
+
+# ---------------------------------------------------------------- read models
+
+
+async def booking_payload(session: AsyncSession, booking: Booking) -> dict[str, Any]:
+    """Booking plus the joined context the UI needs in one round trip (§8).
+
+    The dashboard, the booking list and the detail view all render the same card, so the
+    join lives here rather than in each router.
+    """
+    offer = await session.get(Offer, booking.offer_id)
+    order = await commerce.order_for_booking(session, booking.id)
+    fulfillment = await commerce.fulfillment_for_booking(session, booking.id)
+    definition = await session.get(CapacityDefinition, booking.definition_id)
+    resource = await session.get(CapacityResource, definition.resource_id) if definition else None
+    org = await session.get(Organization, booking.org_id)
+    customer = await session.get(User, booking.customer_id)
+    reviewed = (await session.execute(
+        select(func.count()).select_from(Review).where(Review.booking_id == booking.id)
+    )).scalar_one()
+
+    data = BookingOut.model_validate(booking).model_dump(mode="json")
+    data["order_id"] = str(order.id) if order else None
+    data["offer"] = OfferOut.model_validate(offer).model_dump(mode="json") if offer else None
+    data["order"] = OrderOut.model_validate(order).model_dump(mode="json") if order else None
+    data["fulfillment"] = (FulfillmentOut.model_validate(fulfillment).model_dump(mode="json")
+                           if fulfillment else None)
+    data["offer_title"] = offer.title if offer else None
+    data["org_name"] = org.name if org else None
+    data["resource_name"] = resource.name if resource else None
+    data["customer_name"] = customer.full_name if customer else None
+    data["review_submitted"] = reviewed > 0
+    return data
+
+
+async def order_payload(session: AsyncSession, order: Order) -> dict[str, Any]:
+    data = OrderOut.model_validate(order).model_dump(mode="json")
+    org = await session.get(Organization, order.provider_org_id)
+    data["provider_org_name"] = org.name if org else None
+    return data

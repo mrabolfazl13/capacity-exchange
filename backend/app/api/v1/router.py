@@ -14,6 +14,7 @@ from app.api.v1 import (
     capacity,
     commerce,
     conversations,
+    dashboard,
     disputes,
     marketplace,
     matching,
@@ -35,3 +36,4 @@ router.include_router(reviews.router)
 router.include_router(disputes.router)
 router.include_router(conversations.router)
 router.include_router(notifications.router)
+router.include_router(dashboard.router)

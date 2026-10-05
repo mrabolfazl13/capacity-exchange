@@ -13,55 +13,28 @@ from typing import Annotated
 from fastapi import APIRouter, Query, Request
 from sqlalchemy import func, select
 
-from app.api.v1.deps import ActorDep, PageDep, envelope, idempotent_write, parse_bound
+from app.api.v1.deps import (
+    ActorDep,
+    PageDep,
+    booking_payload,
+    envelope,
+    idempotent_write,
+    parse_bound,
+)
 from app.core.deps import SessionDep
 from app.core.errors import OwnershipRequired, ValidationFailed
 from app.models.booking import BOOKING_STATUSES, Booking, BookingStatusEvent
-from app.models.capacity import CapacityDefinition, CapacityResource
-from app.models.crosscut import Review
-from app.models.identity import Organization, User
-from app.models.marketplace import Offer
 from app.schemas.booking import (
     BookingCreate,
-    BookingOut,
     BookingStatusEventOut,
     CancelRequest,
     HoldRequest,
 )
-from app.schemas.commerce import FulfillmentOut, OrderOut
-from app.schemas.marketplace import OfferOut
 from app.services import booking as booking_svc
 from app.services import commerce
 from app.services.notifications import notify, notify_org
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
-
-
-async def _payload(session, booking: Booking) -> dict:
-    """Booking plus the joined context the UI needs in one round trip (§8)."""
-    offer = await session.get(Offer, booking.offer_id)
-    order = await commerce.order_for_booking(session, booking.id)
-    fulfillment = await commerce.fulfillment_for_booking(session, booking.id)
-    definition = await session.get(CapacityDefinition, booking.definition_id)
-    resource = await session.get(CapacityResource, definition.resource_id) if definition else None
-    org = await session.get(Organization, booking.org_id)
-    customer = await session.get(User, booking.customer_id)
-    reviewed = (await session.execute(
-        select(func.count()).select_from(Review).where(Review.booking_id == booking.id)
-    )).scalar_one()
-
-    data = BookingOut.model_validate(booking).model_dump(mode="json")
-    data["order_id"] = str(order.id) if order else None
-    data["offer"] = (OfferOut.model_validate(offer).model_dump(mode="json") if offer else None)
-    data["order"] = (OrderOut.model_validate(order).model_dump(mode="json") if order else None)
-    data["fulfillment"] = (FulfillmentOut.model_validate(fulfillment).model_dump(mode="json")
-                           if fulfillment else None)
-    data["offer_title"] = offer.title if offer else None
-    data["org_name"] = org.name if org else None
-    data["resource_name"] = resource.name if resource else None
-    data["customer_name"] = customer.full_name if customer else None
-    data["review_submitted"] = reviewed > 0
-    return data
 
 
 async def _load(session, actor, booking_id: uuid.UUID) -> Booking:
@@ -97,7 +70,7 @@ async def create_hold(body: HoldRequest, request: Request, session: SessionDep,
             session, offer_id=body.offer_id, start=body.window_start, end=body.window_end,
             quantity=body.quantity, customer_id=actor.user_id, request=request,
             request_fingerprint=body.request_fingerprint)
-        return await _payload(session, hold)
+        return await booking_payload(session, hold)
 
     return await idempotent_write(session, request, route="POST /bookings/hold",
                                   actor_id=actor.user_id, payload=payload, status_code=201,
@@ -121,7 +94,7 @@ async def create_booking(body: BookingCreate, request: Request, session: Session
                              title="New booking request",
                              body="A customer is waiting for confirmation on one of your offers.",
                              data={"booking_id": str(booking.id)})
-        return await _payload(session, booking)
+        return await booking_payload(session, booking)
 
     return await idempotent_write(session, request, route="POST /bookings",
                                   actor_id=actor.user_id, payload=payload, status_code=201,
@@ -161,12 +134,12 @@ async def list_bookings(session: SessionDep, actor: ActorDep, page: PageDep,
     total = (await session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await session.execute(stmt.order_by(Booking.window_start.desc(), Booking.id)
                                   .limit(page.limit).offset(page.offset))).scalars().all()
-    return envelope([await _payload(session, b) for b in rows], int(total), page)
+    return envelope([await booking_payload(session, b) for b in rows], int(total), page)
 
 
 @router.get("/{booking_id}")
 async def get_booking(booking_id: uuid.UUID, session: SessionDep, actor: ActorDep) -> dict:
-    return await _payload(session, await _load(session, actor, booking_id))
+    return await booking_payload(session, await _load(session, actor, booking_id))
 
 
 @router.get("/{booking_id}/timeline")
@@ -205,7 +178,7 @@ async def confirm_booking(booking_id: uuid.UUID, request: Request, session: Sess
                      title="Booking confirmed",
                      body="The provider has confirmed your booking.",
                      data={"booking_id": str(booking.id)})
-    return await _payload(session, booking)
+    return await booking_payload(session, booking)
 
 
 @router.post("/{booking_id}/start")
@@ -218,7 +191,7 @@ async def start_booking(booking_id: uuid.UUID, request: Request, session: Sessio
     fulfillment = await commerce.ensure_fulfillment(session, booking)
     await commerce.set_fulfillment_status(session, fulfillment, "in_progress",
                                           actor_user_id=actor.user_id, request=request)
-    return await _payload(session, booking)
+    return await booking_payload(session, booking)
 
 
 @router.post("/{booking_id}/complete")
@@ -236,7 +209,7 @@ async def complete_booking(booking_id: uuid.UUID, request: Request, session: Ses
                      title="Booking completed",
                      body="The provider marked your booking as completed.",
                      data={"booking_id": str(booking.id)})
-    return await _payload(session, booking)
+    return await booking_payload(session, booking)
 
 
 @router.post("/{booking_id}/cancel")
@@ -248,7 +221,7 @@ async def cancel_booking(booking_id: uuid.UUID, body: CancelRequest, request: Re
         raise OwnershipRequired("Only the customer or the providing organization can cancel")
     cancelled, refunded = await booking_svc.cancel(
         session, booking, actor_user_id=actor.user_id, reason=body.reason, request=request)
-    payload = await _payload(session, cancelled)
+    payload = await booking_payload(session, cancelled)
     payload["refund_cents"] = refunded
     if booking.customer_id != actor.user_id:
         await notify(session, user_id=booking.customer_id, kind="booking.cancelled",

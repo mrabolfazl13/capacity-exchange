@@ -12,7 +12,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Request
 
-from app.api.v1.deps import ActorDep, PageDep, envelope, idempotent_write
+from app.api.v1.deps import ActorDep, PageDep, envelope, idempotent_write, order_payload
 from app.core.deps import SessionDep, SettingsDep
 from app.core.errors import (
     InvalidStateTransition,
@@ -20,12 +20,10 @@ from app.core.errors import (
     ValidationFailed,
 )
 from app.models.commerce import ORDER_PAYMENT_STATUSES, ORDER_STATUSES, Order, Payment
-from app.models.identity import Organization
 from app.schemas.commerce import (
     FulfillmentNoteInput,
     FulfillmentOut,
     OrderCreateInput,
-    OrderOut,
     PaymentIntentInput,
     PaymentOut,
 )
@@ -33,13 +31,6 @@ from app.services import booking as booking_svc
 from app.services import commerce as svc
 
 router = APIRouter(tags=["commerce"])
-
-
-async def _order_payload(session, order: Order) -> dict:
-    data = OrderOut.model_validate(order).model_dump(mode="json")
-    org = await session.get(Organization, order.provider_org_id)
-    data["provider_org_name"] = org.name if org else None
-    return data
 
 
 async def _order(session: SessionDep, actor: ActorDep, order_id: uuid.UUID) -> Order:
@@ -73,7 +64,7 @@ async def list_orders(session: SessionDep, actor: ActorDep, page: PageDep,
         is_platform_admin=actor.is_platform_admin, provider=provider,
         status=status, payment_status=payment_status,
         limit=page.limit, offset=page.offset)
-    rows = [await _order_payload(session, order) for order in items]
+    rows = [await order_payload(session, order) for order in items]
     return envelope(rows, int(total), page)
 
 
@@ -95,7 +86,7 @@ async def create_order(body: OrderCreateInput, request: Request, session: Sessio
                 details={"booking_id": str(booking.id), "status": booking.status})
         order = await svc.create_order(session, booking=booking, buyer_id=booking.customer_id,
                                        coupon_code=body.coupon_code, request=request)
-        return await _order_payload(session, order)
+        return await order_payload(session, order)
 
     return await idempotent_write(session, request, route="POST /orders",
                                   actor_id=actor.user_id, payload=payload, status_code=201,
@@ -104,7 +95,7 @@ async def create_order(body: OrderCreateInput, request: Request, session: Sessio
 
 @router.get("/orders/{order_id}")
 async def get_order(order_id: uuid.UUID, session: SessionDep, actor: ActorDep) -> dict:
-    return await _order_payload(session, await _order(session, actor, order_id))
+    return await order_payload(session, await _order(session, actor, order_id))
 
 
 @router.get("/orders/{order_id}/payments")
