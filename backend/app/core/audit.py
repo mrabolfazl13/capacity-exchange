@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.audit import AuditLog
+from app.models.crosscut import AuditLog
 
 
 def _request_context(request: Request | None) -> dict[str, Any]:
@@ -25,10 +25,7 @@ def _request_context(request: Request | None) -> dict[str, Any]:
     ctx["ip"] = request.client.host if request.client else None
     ctx["user_agent"] = request.headers.get("user-agent")
     rid = getattr(request.state, "request_id", None)
-    try:
-        ctx["request_id"] = uuid.UUID(rid) if rid else None
-    except (ValueError, TypeError):
-        ctx["request_id"] = None
+    ctx["request_id"] = str(rid)[:64] if rid else None
     return ctx
 
 
