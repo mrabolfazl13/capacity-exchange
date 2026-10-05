@@ -245,8 +245,15 @@ async def create_booking(session: AsyncSession, *, customer_id: uuid.UUID,
                          request: Request | None, hold_id: uuid.UUID | None = None,
                          offer_id: uuid.UUID | None = None, start: datetime | None = None,
                          end: datetime | None = None, quantity: int = 1,
-                         source_match_id: uuid.UUID | None = None) -> Booking:
-    """Confirm a hold, or book directly from an offer."""
+                         source_match_id: uuid.UUID | None = None,
+                         created_by_user_id: uuid.UUID | None = None,
+                         status: str | None = None) -> Booking:
+    """Confirm a hold, or book directly from an offer.
+
+    `created_by_user_id`/`status` let a provider answer a demand: the booking is for the
+    customer but drafted by the provider, and stays `draft` until the customer confirms it
+    (§5.5 counts `draft` as uncommitted, so the customer's confirm revalidates capacity).
+    """
     if hold_id is not None:
         hold = await session.get(Booking, hold_id)
         if hold is None:
@@ -295,10 +302,12 @@ async def create_booking(session: AsyncSession, *, customer_id: uuid.UUID,
     booked = await _reserve(
         session, offer=offer, definition=definition, resource=resource,
         start=start, end=end, quantity=quantity,
-        status="confirmed" if offer.booking_mode == "instant" else "draft",
-        customer_id=customer_id, created_by=customer_id, org_id=offer.org_id,
+        status=status or ("confirmed" if offer.booking_mode == "instant" else "draft"),
+        customer_id=customer_id, created_by=created_by_user_id or customer_id,
+        org_id=offer.org_id,
         request_fingerprint=None, hold_minutes=offer.hold_minutes,
-        meta={"source": "direct", "match_id": str(source_match_id) if source_match_id else None},
+        meta={"source": "match_accept" if source_match_id else "direct",
+              "match_id": str(source_match_id) if source_match_id else None},
         request=request)
     booked.source_match_id = source_match_id
     await session.flush()

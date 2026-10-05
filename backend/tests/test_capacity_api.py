@@ -16,7 +16,8 @@ async def make_provider(client, email: str, name: str = "Room Owner") -> dict:
 async def make_resource(client, tokens: dict, *, name: str = "North Room",
                        category_key: str = "meeting_room", headers: dict | None = None,
                        definitions: list | None = None,
-                       city: str = "Tehran", country: str = "IR") -> dict:
+                       city: str = "Tehran", country: str = "IR",
+                       lat: float | None = None, lon: float | None = None) -> dict:
     cats = await client.get("/catalog/categories", headers=headers or auth(tokens))
     category_id = next(c["id"] for c in cats.json()["items"] if c["key"] == category_key)
     body = {
@@ -24,11 +25,20 @@ async def make_resource(client, tokens: dict, *, name: str = "North Room",
         "address": {"line1": "1 Test St", "city": city, "country": country},
         "timezone": "UTC", "attributes": {"capacity_persons": 8},
     }
+    if lat is not None:
+        body["lat"] = lat
+    if lon is not None:
+        body["lon"] = lon
     if definitions:
         body["definitions"] = definitions
     resp = await client.post("/capacities", json=body, headers=auth(tokens))
     assert resp.status_code == 201, resp.text
     return resp.json()
+
+
+async def category_id_of(client, tokens: dict, key: str = "meeting_room") -> str:
+    cats = await client.get("/catalog/categories", headers=auth(tokens))
+    return next(c["id"] for c in cats.json()["items"] if c["key"] == key)
 
 
 async def add_rule(client, tokens: dict, resource_id: str, definition_id: str,

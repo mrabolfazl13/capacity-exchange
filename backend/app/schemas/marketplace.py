@@ -133,6 +133,22 @@ class DemandInput(ORMModel):
         return v
 
 
+class DemandPatch(ORMModel):
+    """Only the fields a customer may still change while the demand is open (§8)."""
+
+    category_id: UUID | None = None
+    description: str | None = Field(default=None, min_length=10, max_length=8000)
+    address: Address | None = None
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
+    desired_start: WireDateTime | None = None
+    desired_end: WireDateTime | None = None
+    quantity: int | None = Field(default=None, ge=1)
+    budget_min_cents: int | None = Field(default=None, ge=0)
+    budget_max_cents: int | None = Field(default=None, ge=0)
+    expires_at: WireDateTime | None = None
+
+
 class DemandOut(ORMModel):
     id: WireUUID
     customer_id: WireUUID
@@ -165,3 +181,5 @@ class MatchOut(ORMModel):
     created_at: WireDateTime
     offer: OfferOut | None = None
     demand: DemandOut | None = None
+    # The draft booking an accepted match produced, so either side can act on it directly.
+    booking_id: WireUUID | None = None

@@ -14,6 +14,7 @@ from app.api.v1 import (
     capacity,
     commerce,
     marketplace,
+    matching,
     organizations,
 )
 
@@ -23,5 +24,6 @@ router.include_router(organizations.router)
 router.include_router(capacity.catalog_router)
 router.include_router(capacity.router)
 router.include_router(marketplace.router)
+router.include_router(matching.router)
 router.include_router(bookings.router)
 router.include_router(commerce.router)
