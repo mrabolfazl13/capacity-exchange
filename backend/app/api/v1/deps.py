@@ -82,9 +82,9 @@ class Actor:
 async def get_actor(request: Request, session: SessionDep) -> Actor:
     """Build the actor scope from the verified JWT plus fresh DB state.
 
-    Roles come from the token (that is what the caller authenticated as) but org
-    membership is re-read, so revoking staff access takes effect on the next request
-    rather than when the 30-minute access token happens to expire.
+    The token only says who called; roles and organization membership are re-read, so
+    revoking either takes effect on the next request rather than when the 30-minute
+    access token happens to expire (§4).
     """
     from app.core.deps import current_user
 
@@ -143,7 +143,11 @@ def resolve_window(date_from: str | None, date_to: str | None, *,
     if bool(date_from) != bool(date_to):
         raise ValidationFailed("`from` and `to` must be provided together")
     if not date_from:
-        end = datetime.now(timezone.utc)
+        # The trailing window closes on the whole current second rather than on an instant,
+        # because every count compares with `< end`: a write stamped in the same clock tick as
+        # this request would otherwise sit outside the window and the reader would not see its
+        # own write. Wire timestamps are second-precision anyway (§1).
+        end = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(seconds=1)
         return end - timedelta(days=default_days), end
     return parse_window(date_from, date_to, max_days=max_days)
 
