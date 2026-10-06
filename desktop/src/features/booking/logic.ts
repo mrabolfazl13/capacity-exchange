@@ -103,35 +103,43 @@ export function refundPctForCancellation(
   return 0;
 }
 
+/**
+ * A client-side hold problem, named by its catalog key so the message is written in the
+ * reader's language rather than baked into this module as English prose.
+ */
+export interface HoldIssue {
+  key: MessageKey;
+  params?: Record<string, string | number>;
+}
+
 /** Client-side sanity check before placing a hold; server revalidates (§5.5). */
 export function validateHoldRequest(
   offer: Pick<Offer, 'min_quantity' | 'max_quantity' | 'min_duration_minutes' | 'max_duration_minutes'>,
   startIso: string,
   endIso: string,
   quantity: number,
-): string[] {
-  const errors: string[] = [];
+): HoldIssue[] {
+  const errors: HoldIssue[] = [];
   const start = new Date(startIso).getTime();
   const end = new Date(endIso).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end)) {
-    errors.push('Invalid window dates');
-    return errors;
+    return [{ key: 'book.check.invalidWindow' }];
   }
-  if (end <= start) errors.push('End must be after start');
-  if (start < Date.now() - 60_000) errors.push('Start cannot be in the past');
-  if (!Number.isInteger(quantity) || quantity < 1) errors.push('Quantity must be at least 1');
+  if (end <= start) errors.push({ key: 'book.check.endAfterStart' });
+  if (start < Date.now() - 60_000) errors.push({ key: 'book.check.notPast' });
+  if (!Number.isInteger(quantity) || quantity < 1) errors.push({ key: 'book.check.quantityAtLeastOne' });
   if (offer.min_quantity != null && quantity < offer.min_quantity) {
-    errors.push(`Minimum quantity is ${offer.min_quantity}`);
+    errors.push({ key: 'book.check.minQuantity', params: { min: offer.min_quantity } });
   }
   if (offer.max_quantity != null && quantity > offer.max_quantity) {
-    errors.push(`Maximum quantity is ${offer.max_quantity}`);
+    errors.push({ key: 'book.check.maxQuantity', params: { max: offer.max_quantity } });
   }
   const minutes = (end - start) / 60_000;
   if (offer.min_duration_minutes != null && minutes < offer.min_duration_minutes) {
-    errors.push(`Minimum duration is ${offer.min_duration_minutes} minutes`);
+    errors.push({ key: 'book.check.minDuration', params: { minutes: offer.min_duration_minutes } });
   }
   if (offer.max_duration_minutes != null && minutes > offer.max_duration_minutes) {
-    errors.push(`Maximum duration is ${offer.max_duration_minutes} minutes`);
+    errors.push({ key: 'book.check.maxDuration', params: { minutes: offer.max_duration_minutes } });
   }
   return errors;
 }

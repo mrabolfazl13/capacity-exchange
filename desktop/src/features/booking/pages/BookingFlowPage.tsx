@@ -49,9 +49,11 @@ export function BookingFlowPage() {
   const clientErrors = useMemo(
     () =>
       offer.data && startIso && endIso
-        ? validateHoldRequest(offer.data, startIso, endIso, form.quantity)
+        ? validateHoldRequest(offer.data, startIso, endIso, form.quantity).map((issue) =>
+            t(issue.key, issue.params),
+          )
         : [],
-    [offer.data, startIso, endIso, form.quantity],
+    [offer.data, startIso, endIso, form.quantity, t],
   );
 
   const hold = useMutation({
