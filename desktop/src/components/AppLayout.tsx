@@ -1,7 +1,7 @@
 // Application shell: role-aware sidebar navigation + topbar with session menu.
 
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useAuth, isAdminUser, isProviderUser } from '@/auth/AuthProvider';
+import { useAuth, isAdminUser, isProviderUser, isSupportUser } from '@/auth/AuthProvider';
 import { useI18n, LOCALES, type Locale } from '@/i18n/index';
 import { useNotifications } from '@/hooks/useNotifications';
 import { Button } from '@/components/ui/Button';
@@ -64,19 +64,26 @@ export function AppLayout() {
           <NavGroup title={t('nav.provider')}>
             <NavItem to="/provider" label={t('nav.providerDashboard')} icon="▲" />
             <NavItem to="/provider/new" label={t('nav.wizard')} icon="＋" />
+            <NavItem to="/provider/resources" label={t('nav.resources')} icon="▦" />
+            <NavItem to="/provider/offers" label={t('nav.providerOffers')} icon="◇" />
+            <NavItem to="/provider/matches" label={t('nav.providerMatches')} icon="◈" />
             <NavItem to="/provider/bookings" label={t('nav.providerBookings')} icon="▥" />
             <NavItem to="/provider/reviews" label={t('nav.reviews')} icon="★" />
           </NavGroup>
         ) : null}
 
-        {isAdminUser(user) ? (
+        {isSupportUser(user) ? (
           <NavGroup title={t('nav.admin')}>
-            <NavItem to="/admin/users" label={t('nav.adminUsers')} icon="◇" />
-            <NavItem to="/admin/providers" label={t('nav.adminProviders')} icon="□" />
             <NavItem to="/admin/disputes" label={t('nav.adminDisputes')} icon="⚠" />
-            <NavItem to="/admin/audit-logs" label={t('nav.adminAudit')} icon="≡" />
-            <NavItem to="/admin/categories" label={t('nav.adminCategories')} icon="✦" />
-            <NavItem to="/admin/promotions" label={t('nav.adminPromotions')} icon="%" />
+            {isAdminUser(user) ? (
+              <>
+                <NavItem to="/admin/users" label={t('nav.adminUsers')} icon="◇" />
+                <NavItem to="/admin/providers" label={t('nav.adminProviders')} icon="□" />
+                <NavItem to="/admin/audit-logs" label={t('nav.adminAudit')} icon="≡" />
+                <NavItem to="/admin/categories" label={t('nav.adminCategories')} icon="✦" />
+                <NavItem to="/admin/promotions" label={t('nav.adminPromotions')} icon="%" />
+              </>
+            ) : null}
           </NavGroup>
         ) : null}
       </nav>
