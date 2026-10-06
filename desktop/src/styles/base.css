@@ -265,6 +265,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .mono { font-family: var(--font-mono); font-size: var(--text-xs); }
 .text-right { text-align: right; }
 .mt-auto { margin-top: auto; }
+.spacer { margin-inline-start: auto; }
 
 /* ---------- tables ---------- */
 .table-wrap { overflow-x: auto; }

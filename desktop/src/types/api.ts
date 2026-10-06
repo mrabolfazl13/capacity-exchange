@@ -629,6 +629,31 @@ export interface Dispute {
 
 // ---------- Admin ----------
 
+/**
+ * The support queue row: a dispute plus the service, the money and its age, so a decision
+ * never needs a second round trip to the booking and the order.
+ */
+export interface AdminDisputeRow extends Dispute {
+  booking_status?: string | null;
+  window_start?: ISODateTime | null;
+  window_end?: ISODateTime | null;
+  offer_title?: string | null;
+  customer_name?: string | null;
+  customer_email?: string | null;
+  order_total_cents?: number | null;
+  order_refunded_cents?: number | null;
+  order_payment_status?: string | null;
+  age_hours?: number | null;
+}
+
+/** A granted platform role. `customer` is implicit on every account, never a row. */
+export interface UserRole {
+  user_id: UUID;
+  role: RoleKey;
+  granted_by: UUID | null;
+  created_at: ISODateTime;
+}
+
 export interface AuditLog {
   id: UUID;
   actor_user_id: UUID | null;
@@ -679,6 +704,20 @@ export interface Promotion {
   created_by: UUID | null;
   created_at: ISODateTime;
   created_by_name?: string | null;
+}
+
+/** One order that spent a coupon — the audit trail behind `used_count`. */
+export interface PromotionRedemption {
+  id: UUID;
+  promotion_id: UUID;
+  user_id: UUID;
+  order_id: UUID | null;
+  discount_cents: number;
+  redeemed_at: ISODateTime;
+  user_name: string | null;
+  user_email: string | null;
+  order_number: string | null;
+  order_total_cents: number | null;
 }
 
 // ---------- Dashboards (§8) ----------
