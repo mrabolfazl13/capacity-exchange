@@ -5,8 +5,10 @@ Importing them from `commerce.py` would create a cycle: `schemas.booking` depend
 """
 from __future__ import annotations
 
+from pydantic import Field
+
 from app.schemas.booking import BookingOut
-from app.schemas.common import ORMModel, WireUUID
+from app.schemas.common import ORMModel, WireDate, WireDateTime, WireUUID
 from app.schemas.commerce import OrderOut
 
 
@@ -43,3 +45,40 @@ class AdminDashboard(ORMModel):
     currency: str = "USD"
     commission_cents: int = 0
     open_disputes: int = 0
+
+
+class TopCategoryRow(ORMModel):
+    category_id: WireUUID
+    label: str
+    bookings: int
+    revenue_cents: int
+
+
+class AnalyticsDay(ORMModel):
+    date: WireDate
+    bookings_created: int
+    orders_placed: int
+    gmv_cents: int
+
+
+class PlatformAnalytics(ORMModel):
+    """Every key names its own clock (§8): volume is event-dated, money is settlement-dated."""
+
+    date_from: WireDateTime = Field(validation_alias="from", serialization_alias="from")
+    date_to: WireDateTime = Field(validation_alias="to", serialization_alias="to")
+    users_created: int = 0
+    providers_created: int = 0
+    offers_created: int = 0
+    bookings_created: int = 0
+    bookings_completed: int = 0
+    bookings_cancelled: int = 0
+    orders_placed: int = 0
+    gmv_cents: int = 0
+    commission_cents: int = 0
+    refunded_cents: int = 0
+    reviews_published: int = 0
+    rating_avg: float | None = None
+    disputes_opened: int = 0
+    disputes_resolved: int = 0
+    top_categories: list[TopCategoryRow] = []
+    daily: list[AnalyticsDay] = []

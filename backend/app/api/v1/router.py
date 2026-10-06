@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    admin,
     auth,
     bookings,
     capacity,
@@ -37,3 +38,4 @@ router.include_router(disputes.router)
 router.include_router(conversations.router)
 router.include_router(notifications.router)
 router.include_router(dashboard.router)
+router.include_router(admin.router)

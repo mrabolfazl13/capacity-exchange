@@ -155,3 +155,5 @@ class AdminUserRow(ORMModel):
     is_active: bool
     created_at: WireDateTime
     last_login_at: WireDateTime | None = None
+    #: The organizations a platform operator can see without opening the org page (§8).
+    org_names: list[str] = []

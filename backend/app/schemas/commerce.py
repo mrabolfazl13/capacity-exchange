@@ -219,10 +219,16 @@ class AuditLogOut(ORMModel):
     entity_id: WireUUID | None
     before: dict | None
     after: dict | None
+    #: Stored as a native INET, which the driver hands back as an address object (§1: text).
     ip: str | None
     user_agent: str | None
     request_id: str | None
     created_at: WireDateTime
+
+    @field_validator("ip", mode="before")
+    @classmethod
+    def _ip_as_text(cls, value: object) -> object:
+        return value if value is None or isinstance(value, str) else str(value)
 
 
 class PromotionInput(ORMModel):
@@ -289,6 +295,29 @@ class AdminProviderOut(ORMModel):
     org_admin_email: str | None = None
     offer_count: int = 0
     booking_count: int = 0
+    country: str | None = None
+    currency: str = "USD"
+    timezone: str = "UTC"
+    #: Net of refunds, over the organization's whole history — the operator's triage column.
+    gmv_cents: int = 0
+    rating_avg: float | None = None
+    rating_count: int = 0
+    open_disputes: int = 0
+
+
+class AdminDisputeOut(DisputeOut):
+    """The queue row plus the context a decision needs, so support opens one list (§8)."""
+
+    booking_status: str | None = None
+    window_start: WireDateTime | None = None
+    window_end: WireDateTime | None = None
+    offer_title: str | None = None
+    customer_name: str | None = None
+    customer_email: str | None = None
+    order_total_cents: int | None = None
+    order_refunded_cents: int | None = None
+    order_payment_status: str | None = None
+    age_hours: float | None = None
 
 
 class RoleInput(ORMModel):

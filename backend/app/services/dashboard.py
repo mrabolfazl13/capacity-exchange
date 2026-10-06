@@ -48,7 +48,6 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-
 def _hours(start: datetime, end: datetime) -> float:
     return max(0.0, (end - start).total_seconds() / 3600.0)
 
