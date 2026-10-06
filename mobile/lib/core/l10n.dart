@@ -63,8 +63,7 @@ class AppLocalizations {
     'retry': 'Retry',
     'load_more': 'Load more',
     'no_results': 'No offers match your search',
-    'no_results_hint':
-        'Try removing a filter or widening the date range.',
+    'no_results_hint': 'Try removing a filter or widening the date range.',
     'something_wrong': 'Something went wrong',
     'offline_hint': 'Check that the API server is running and reachable.',
     'book': 'Book',
@@ -133,6 +132,77 @@ class AppLocalizations {
     'submit': 'Submit',
     'server_says': 'Server says',
     'welcome': 'Welcome',
+    'settings': 'Settings',
+    'organization': 'Organization',
+    'anonymous': 'Anonymous',
+    // Booking flow
+    'booking': 'Booking',
+    'your_booking': 'Your booking',
+    'choose_window': 'Choose a window',
+    'next_fortnight': 'Next fortnight',
+    'more_windows': 'more windows',
+    'no_windows': 'No free windows in this range',
+    'no_windows_later': 'No free windows later in this range',
+    'pay_now': 'Pay now',
+    'done': 'Done',
+    'view_booking': 'View booking',
+    'actions': 'Actions',
+    'payment': 'Payment',
+    'unit_price': 'Unit price',
+    'discount': 'Discount',
+    'cancel_reason': 'Reason',
+    'booking_cancelled': 'Booking cancelled',
+    'no_policy_on_booking': 'No cancellation policy on this booking',
+    'refund': 'Refund',
+    'at_least': 'At least',
+    'raise_dispute': 'Raise a dispute',
+    'describe_issue': 'Describe the issue',
+    'dispute_opened': 'Dispute opened — our team will review it',
+    'review_saved': 'Review saved',
+    'order': 'Order',
+    'order_number': 'Order number',
+    'not_invoiced_yet': 'Not invoiced yet',
+    // Offer constraints
+    'per_slot': 'per slot',
+    'lead_time': 'Lead time',
+    'hold_minutes': 'Hold',
+    // Demands
+    'demand': 'Demand',
+    'post_demand': 'Post a demand',
+    'describe_need': 'Describe what you need',
+    'description': 'Description',
+    'budget': 'Budget',
+    'budget_min': 'Budget min',
+    'budget_max': 'Budget max',
+    'expires': 'Expires',
+    'close_demand': 'Close demand',
+    'matched_offers': 'Matched offers',
+    'match_score': 'match',
+    'no_matches_yet': 'No matches yet',
+    'no_open_demands': 'No open demands matched to you',
+    // Provider workspace
+    'provider_workspace': 'Provider workspace',
+    'needs_action': 'Needs your action',
+    'match_inbox': 'Match inbox',
+    'my_offers': 'My offers',
+    'pause_offer': 'Pause offer',
+    'publish_offer': 'Publish offer',
+    'resource': 'Resource',
+    'nothing_pending': 'Nothing pending',
+    'no_offers': 'You have no offers yet',
+    // Empty states
+    'no_bookings': 'No bookings yet',
+    'no_orders': 'No orders yet',
+    'booking_thread': 'Booking thread',
+    // Pre-flight hold checks (the server still has the final word)
+    'err_end_after_start': 'The window must end after it starts',
+    'err_window_past': 'The window cannot be in the past',
+    'err_quantity_min': 'Quantity is below this offer\u2019s minimum',
+    'err_quantity_max': 'Quantity is above this offer\u2019s maximum',
+    'err_duration_min': 'The window is shorter than this offer allows',
+    'err_duration_max': 'The window is longer than this offer allows',
+    'err_pick_window': 'Pick a window first',
+    'err_describe_need': 'Describe the need in at least 10 characters',
   };
 
   static const Map<String, String> _fa = {
@@ -198,18 +268,114 @@ class AppLocalizations {
     'all': 'همه',
     'submit': 'ارسال',
     'welcome': 'خوش آمدید',
+    'settings': 'تنظیمات',
+    'organization': 'سازمان',
+    'phone': 'تلفن (اختیاری)',
+    'unread': 'خوانده‌نشده',
+    'provider_actions': 'عملیات ارائه‌دهنده',
+    'open_demands': 'نیازهای بازِ matching شده با شما',
+    'bookings_by_status': 'رزروها بر اساس وضعیت',
+    'top_offers': 'پرفروش‌ترین پیشنهادها',
+    'flat_price': 'قیمت ثابت',
+    'rating_none': 'هنوز امتیازی ثبت نشده',
+    'holding': 'نگه‌داشتن ثبت شد',
+    'upcoming_tab': 'آینده',
+    'past_tab': 'گذشته',
+    'open': 'باز',
+    'closed': 'بسته',
+    'server_says': 'پاسخ سرور',
+    'no_messages': 'هنوز گفت‌وگویی نیست',
+    'message_hint': 'پیام خود را بنویسید…',
+    'send': 'ارسال',
+    'load_more': 'مورد بیشتر',
+    'offline_hint': 'در دسترس بودن سرور را بررسی کنید.',
+    'min_rating': 'حداقل امتیاز',
+    'sort_price_desc': 'قیمت: زیاد به کم',
+    'sort_newest': 'جدیدترین',
+    'have_account': 'حساب دارید؟ وارد شوید',
+    'no_account': 'تازه‌اید؟ حساب بسازید',
+    // Booking flow
+    'booking': 'رزرو',
+    'your_booking': 'رزرو شما',
+    'choose_window': 'یک بازه زمانی انتخاب کنید',
+    'next_fortnight': 'دو هفته آینده',
+    'more_windows': 'بازه دیگر',
+    'no_windows': 'در این بازه زمانی خالی نیست',
+    'no_windows_later': 'بعد از این تاریخ باقی مانده',
+    'pay_now': 'پرداخت',
+    'done': 'پایان',
+    'view_booking': 'مشاهده رزرو',
+    'actions': 'عملیات',
+    'payment': 'پرداخت',
+    'unit_price': 'قیمت هر واحد',
+    'discount': 'تخفیف',
+    'cancel_reason': 'دلیل',
+    'booking_cancelled': 'رزرو لغو شد',
+    'no_policy_on_booking': 'این رزرو سیاست لغو ندارد',
+    'refund': 'بازگشت وجه',
+    'at_least': 'حداقل',
+    'raise_dispute': 'ثبت اعتراض',
+    'describe_issue': 'مشکل را توضیح دهید',
+    'dispute_opened': 'اعتبار ثبت شد و تیم ما آن را بررسی می‌کند',
+    'review_saved': 'نظر ثبت شد',
+    'order': 'سفارش',
+    'order_number': 'شماره سفارش',
+    'not_invoiced_yet': 'هنوز فاکتور صادر نشده',
+    // Offer constraints
+    'per_slot': 'برای هر اسلات',
+    'lead_time': 'حداقل زمان آماده‌سازی',
+    'hold_minutes': 'مدت نگه‌داشتن',
+    // Demands
+    'demand': 'نیاز',
+    'post_demand': 'ثبت نیاز',
+    'describe_need': 'نیاز خود را توضیح دهید',
+    'description': 'توضیح',
+    'budget': 'بودجه',
+    'budget_min': 'حداقل بودجه',
+    'budget_max': 'حداکثر بودجه',
+    'expires': 'انقضا',
+    'close_demand': 'بستن نیاز',
+    'matched_offers': 'پیشنادهای منطبق',
+    'match_score': 'انطباق',
+    'no_matches_yet': 'هنوز منطبقی نیست',
+    'no_open_demands': 'هیچ نیاز بازی با شما منطبق نشده',
+    // Provider workspace
+    'provider_workspace': 'محیط ارائه‌دهنده',
+    'needs_action': 'نیازمند اقدام شما',
+    'match_inbox': 'صندوق انطباق',
+    'my_offers': 'پیشنادهای من',
+    'pause_offer': 'توقف پیشنهاد',
+    'publish_offer': 'انتشار پیشنهاد',
+    'resource': 'منبع',
+    'nothing_pending': 'مورد در انتظار نیست',
+    'no_offers': 'هنوز پیشنهادی ندارید',
+    // Empty states
+    'no_bookings': 'هنوز رزروی ندارید',
+    'no_orders': 'هنوز سفارشی ندارید',
+    'booking_thread': 'گفت‌وگوی رزرو',
+    // Pre-flight hold checks (the server still has the final word)
+    'err_end_after_start': 'پایان بازه باید بعد از شروع آن باشد',
+    'err_window_past': 'بازه نمی‌تواند در گذشته باشد',
+    'err_quantity_min': 'تعداد از حداقل این پیشنهاد کمتر است',
+    'err_quantity_max': 'تعداد از حداکثر این پیشنهاد بیشتر است',
+    'err_duration_min': 'بازه انتخابی کوتاه‌تر از حد مجاز است',
+    'err_duration_max': 'بازه انتخابی بلندتر از حد مجاز است',
+    'err_pick_window': 'ابتدا یک بازه انتخاب کنید',
+    'err_describe_need': 'نیاز را دست‌کم در ۱۰ نویسه توضیح دهید',
   };
 
-  String t(String key) => _fa[key] ?? _en[key] ?? key;
+  /// The active language's string, with English as the fallback for any key
+  /// Persian has not caught up with yet.
+  String t(String key) => (isFa ? _fa[key] : null) ?? _en[key] ?? key;
 }
 
-class AppLocalizationsDelegate
-    extends LocalizationsDelegate<AppLocalizations> {
+class AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
   const AppLocalizationsDelegate();
 
   @override
-  bool isSupported(Locale locale) =>
-      AppLocalizations.supported.any((l) => l.languageCode == locale.languageCode);
+  bool isSupported(Locale locale) => AppLocalizations.supported.any(
+    (l) => l.languageCode == locale.languageCode,
+  );
 
   @override
   Future<AppLocalizations> load(Locale locale) async =>
@@ -234,6 +400,5 @@ class LocaleController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggle() =>
-      setLocale(isFa ? const Locale('en') : const Locale('fa'));
+  void toggle() => setLocale(isFa ? const Locale('en') : const Locale('fa'));
 }
