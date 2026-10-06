@@ -3,9 +3,9 @@ import 'offer.dart' show CancellationBand;
 import 'json.dart';
 
 /// Booking lifecycle statuses (CONTRACTS §5.4) — the server owns the state
-/// machine (§5.5); the helpers below only decide which CTAs to render and
-/// re-issue nothing optimistically. Any wrong guess still ends in a server 400
-/// `invalid_state_transition`.
+/// machine (§5.5). The client only names these tokens; the CTA rules that read
+/// them live in `data/actions.dart`, and any wrong guess still ends in a
+/// server 400 `invalid_state_transition`.
 abstract final class BookingStatuses {
   static const draft = 'draft';
   static const hold = 'hold';
@@ -15,32 +15,6 @@ abstract final class BookingStatuses {
   static const cancelled = 'cancelled';
   static const expired = 'expired';
   static const disputed = 'disputed';
-
-  static const all = [
-    draft,
-    hold,
-    confirmed,
-    inProgress,
-    completed,
-    cancelled,
-    expired,
-    disputed,
-  ];
-
-  static const terminal = [completed, cancelled, expired];
-
-  static bool isTerminal(String s) => terminal.contains(s);
-
-  /// Transitions offered to the customer (§5.5).
-  static bool customerCanCancel(String s) =>
-      s == draft || s == hold || s == confirmed;
-
-  /// Transitions offered to the provider (§5.5: confirmed→in_progress,
-  /// in_progress→completed, hold→confirmed for request_confirm offers).
-  static bool providerCanConfirm(String s) => s == hold;
-  static bool providerCanStart(String s) => s == confirmed;
-  static bool providerCanComplete(String s) => s == inProgress;
-  static bool canOpenDispute(String s) => s == confirmed || s == inProgress;
 }
 
 /// A booking row (holds are bookings in status `hold`, §5.4 — one table).
@@ -121,8 +95,7 @@ class Booking {
       status == BookingStatuses.confirmed ||
       status == BookingStatuses.inProgress;
 
-  bool get isPaid =>
-      paymentStatus == 'paid' || paymentStatus == 'not_required';
+  bool get isPaid => paymentStatus == 'paid' || paymentStatus == 'not_required';
 
   /// Remaining hold time (never negative); null when not holding.
   Duration? holdRemaining([DateTime? now]) {
@@ -133,9 +106,10 @@ class Booking {
   }
 
   static Booking fromJson(Map<String, dynamic> json) {
-    final bands = Json.list(json, 'cancellation_policy')
-        .map(CancellationBand.fromJson)
-        .toList(growable: false);
+    final bands = Json.list(
+      json,
+      'cancellation_policy',
+    ).map(CancellationBand.fromJson).toList(growable: false);
     return Booking(
       id: Json.strOr(json, 'id'),
       offerId: Json.strOr(json, 'offer_id'),
@@ -189,14 +163,13 @@ class BookingEvent {
   final DateTime? occurredAt;
 
   static BookingEvent fromJson(Map<String, dynamic> json) => BookingEvent(
-        id: Json.strOr(json, 'id'),
-        toStatus: Json.strOr(json, 'to_status'),
-        fromStatus: Json.str(json, 'from_status'),
-        reason: Json.str(json, 'reason'),
-        actorUserId: Json.str(json, 'actor_user_id'),
-        occurredAt: Json.date(json, 'occurred_at') ??
-            Json.date(json, 'created_at'),
-      );
+    id: Json.strOr(json, 'id'),
+    toStatus: Json.strOr(json, 'to_status'),
+    fromStatus: Json.str(json, 'from_status'),
+    reason: Json.str(json, 'reason'),
+    actorUserId: Json.str(json, 'actor_user_id'),
+    occurredAt: Json.date(json, 'occurred_at') ?? Json.date(json, 'created_at'),
+  );
 }
 
 /// Cancellation band lives in models/offer.dart (`CancellationBand`); the
@@ -207,7 +180,8 @@ extension CancellationBandPreview on List<CancellationBand> {
   /// remain right now. The server recomputes authoritatively on cancel (§5.6).
   CancellationBand? applyFor(int hoursBeforeStart) {
     if (isEmpty) return null;
-    final sorted = [...this]..sort((a, b) => b.hoursBefore.compareTo(a.hoursBefore));
+    final sorted = [...this]
+      ..sort((a, b) => b.hoursBefore.compareTo(a.hoursBefore));
     for (final band in sorted) {
       if (hoursBeforeStart >= band.hoursBefore) return band;
     }

@@ -35,15 +35,15 @@ class Dispute {
   bool get isOpen => status == 'open' || status == 'under_review';
 
   static Dispute fromJson(Map<String, dynamic> json) => Dispute(
-        id: Json.strOr(json, 'id'),
-        bookingId: Json.strOr(json, 'booking_id'),
-        orgId: Json.str(json, 'org_id'),
-        complainantId: Json.str(json, 'complainant_id'),
-        kind: Json.strOr(json, 'kind', 'other'),
-        status: Json.strOr(json, 'status', 'open'),
-        description: Json.strOr(json, 'description'),
-        resolutionNote: Json.str(json, 'resolution_note'),
-        createdAt: Json.date(json, 'created_at'),
-        resolvedAt: Json.date(json, 'resolved_at'),
-      );
+    id: Json.strOr(json, 'id'),
+    bookingId: Json.strOr(json, 'booking_id'),
+    orgId: Json.str(json, 'org_id'),
+    complainantId: Json.str(json, 'complainant_id'),
+    kind: Json.strOr(json, 'kind', 'other'),
+    status: Json.strOr(json, 'status', 'open'),
+    description: Json.strOr(json, 'description'),
+    resolutionNote: Json.str(json, 'resolution_note'),
+    createdAt: Json.date(json, 'created_at'),
+    resolvedAt: Json.date(json, 'resolved_at'),
+  );
 }

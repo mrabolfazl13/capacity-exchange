@@ -18,16 +18,16 @@ class ApiClient {
     TokenStore? tokenStore,
     String? baseUrl,
     this.onSessionExpired,
-  })  : _http = httpClient ?? http.Client(),
-        _tokens = tokenStore ?? SecureTokenStore(),
-        _baseUrl = _normalizeBase(baseUrl ?? Env.apiBaseUrl);
+  }) : _http = httpClient ?? http.Client(),
+       _tokens = tokenStore ?? SecureTokenStore(),
+       _baseUrl = _normalizeBase(baseUrl ?? Env.apiBaseUrl);
 
   final http.Client _http;
   final TokenStore _tokens;
   final String _baseUrl;
 
   /// Called when a refresh attempt fails and the session is gone.
-  final VoidCallback? onSessionExpired;
+  final void Function()? onSessionExpired;
 
   String? _accessToken;
   Completer<bool>? _refreshCompleter;
@@ -42,25 +42,39 @@ class ApiClient {
 
   // ------------------------------------------------------------------ verbs
 
-  Future<dynamic> get(String path,
-          {Map<String, dynamic>? query, Map<String, String>? headers}) =>
-      request('GET', path, query: query, headers: headers);
+  Future<dynamic> get(
+    String path, {
+    Map<String, dynamic>? query,
+    Map<String, String>? headers,
+  }) => request('GET', path, query: query, headers: headers);
 
-  Future<dynamic> post(String path,
-          {Object? body,
-          Map<String, dynamic>? query,
-          Map<String, String>? headers}) =>
-      request('POST', path, body: body, query: query, headers: headers);
+  Future<dynamic> post(
+    String path, {
+    Object? body,
+    Map<String, dynamic>? query,
+    Map<String, String>? headers,
+    bool authenticated = true,
+  }) => request(
+    'POST',
+    path,
+    body: body,
+    query: query,
+    headers: headers,
+    authenticated: authenticated,
+  );
 
-  Future<dynamic> patch(String path,
-          {Object? body,
-          Map<String, dynamic>? query,
-          Map<String, String>? headers}) =>
-      request('PATCH', path, body: body, query: query, headers: headers);
+  Future<dynamic> patch(
+    String path, {
+    Object? body,
+    Map<String, dynamic>? query,
+    Map<String, String>? headers,
+  }) => request('PATCH', path, body: body, query: query, headers: headers);
 
-  Future<dynamic> delete(String path,
-          {Map<String, dynamic>? query, Map<String, String>? headers}) =>
-      request('DELETE', path, query: query, headers: headers);
+  Future<dynamic> delete(
+    String path, {
+    Map<String, dynamic>? query,
+    Map<String, String>? headers,
+  }) => request('DELETE', path, query: query, headers: headers);
 
   /// Core request. Throws [ApiException] on any non-2xx or transport failure.
   Future<dynamic> request(
@@ -71,18 +85,27 @@ class ApiClient {
     Map<String, String>? headers,
     bool authenticated = true,
   }) async {
-    var httpResp = await _send(method, path,
-        body: body, query: query, headers: headers, authenticated: authenticated);
+    var httpResp = await _send(
+      method,
+      path,
+      body: body,
+      query: query,
+      headers: headers,
+      authenticated: authenticated,
+    );
 
     if (httpResp.statusCode == 401 && authenticated) {
       // One refresh attempt per request, deduplicated across concurrent calls.
       final refreshed = await _refreshSingleFlight();
       if (refreshed) {
-        httpResp = await _send(method, path,
-            body: body,
-            query: query,
-            headers: headers,
-            authenticated: authenticated);
+        httpResp = await _send(
+          method,
+          path,
+          body: body,
+          query: query,
+          headers: headers,
+          authenticated: authenticated,
+        );
       } else {
         _handleSessionGone();
       }
@@ -117,17 +140,16 @@ class ApiClient {
       final request = http.Request(method, uri);
       request.headers.addAll(reqHeaders);
       if (body != null) request.body = jsonEncode(_stripNulls(body));
-      final streamed =
-          await _http.send(request).timeout(Env.apiTimeout);
-      return await http.Response.fromStream(streamed)
-          .timeout(Env.apiTimeout);
+      final streamed = await _http.send(request).timeout(Env.apiTimeout);
+      return await http.Response.fromStream(streamed).timeout(Env.apiTimeout);
     } on ApiException {
       rethrow;
     } on TimeoutException {
       throw ApiException(
         statusCode: 0,
         code: 'network_timeout',
-        message: 'The server did not respond in time. '
+        message:
+            'The server did not respond in time. '
             'Check connectivity and that the API base URL is correct.',
       );
     } catch (e) {
@@ -189,8 +211,8 @@ class ApiClient {
         details: e['details'] is Map<String, dynamic>
             ? e['details'] as Map<String, dynamic>
             : (e['details'] is Map
-                ? Map<String, dynamic>.from(e['details'] as Map)
-                : null),
+                  ? Map<String, dynamic>.from(e['details'] as Map)
+                  : null),
         requestId: e['request_id']?.toString(),
       );
     }
@@ -202,7 +224,11 @@ class ApiClient {
       message = d is String ? d : 'Validation failed';
       if (d is List && d.isNotEmpty) code = 'validation_error';
     }
-    throw ApiException(statusCode: resp.statusCode, code: code, message: message);
+    throw ApiException(
+      statusCode: resp.statusCode,
+      code: code,
+      message: message,
+    );
   }
 
   // --------------------------------------------------------------- refresh
@@ -254,11 +280,12 @@ class ApiClient {
   // -------------------------------------------------------------- sessions
 
   /// Login: POST /auth/login -> {access_token, refresh_token, user?}.
-  Future<Map<String, dynamic>> login(
-      String email, String password) async {
-    final json = await post('/auth/login',
-        body: {'email': email, 'password': password},
-        authenticated: false);
+  Future<Map<String, dynamic>> login(String email, String password) async {
+    final json = await post(
+      '/auth/login',
+      body: {'email': email, 'password': password},
+      authenticated: false,
+    );
     return _adoptSession(json);
   }
 

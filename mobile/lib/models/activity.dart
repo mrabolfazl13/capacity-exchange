@@ -36,13 +36,15 @@ class NotificationItem {
   String? get conversationId => Json.str(data, 'conversation_id');
   String? get demandId => Json.str(data, 'demand_id');
 
-  static NotificationItem fromJson(Map<String, dynamic> json) => NotificationItem(
+  static NotificationItem fromJson(Map<String, dynamic> json) =>
+      NotificationItem(
         id: Json.strOr(json, 'id'),
         kind: Json.strOr(json, 'kind'),
         title: Json.strOr(json, 'title'),
         body: Json.strOr(json, 'body'),
         channel: Json.strOr(json, 'channel', 'in_app'),
-        isRead: Json.date(json, 'read_at') != null || Json.boolOr(json, 'is_read'),
+        isRead:
+            Json.date(json, 'read_at') != null || Json.boolOr(json, 'is_read'),
         data: Json.map(json, 'data'),
         createdAt: Json.date(json, 'created_at'),
         readAt: Json.date(json, 'read_at'),
@@ -58,7 +60,8 @@ class Conversation {
     required this.customerId,
     required this.providerOrgId,
     this.refId,
-    this.subject = '',
+    this.peerName = '',
+    this.lastMessageBody = '',
     this.lastMessageAt,
     this.unreadCount = 0,
   });
@@ -73,21 +76,25 @@ class Conversation {
   final String status;
   final String customerId;
   final String providerOrgId;
-  final String subject;
+
+  /// Joined by the list route: who the other side is, and what they last said.
+  final String peerName;
+  final String lastMessageBody;
   final DateTime? lastMessageAt;
   final int unreadCount;
 
   static Conversation fromJson(Map<String, dynamic> json) => Conversation(
-        id: Json.strOr(json, 'id'),
-        kind: Json.strOr(json, 'kind', 'booking'),
-        refId: Json.str(json, 'ref_id'),
-        status: Json.strOr(json, 'status', 'open'),
-        customerId: Json.strOr(json, 'customer_id'),
-        providerOrgId: Json.strOr(json, 'provider_org_id'),
-        subject: Json.strOr(json, 'subject', Json.strOr(json, 'title')),
-        lastMessageAt: Json.date(json, 'last_message_at'),
-        unreadCount: Json.intOr(json, 'unread_count'),
-      );
+    id: Json.strOr(json, 'id'),
+    kind: Json.strOr(json, 'kind', 'booking'),
+    refId: Json.str(json, 'ref_id'),
+    status: Json.strOr(json, 'status', 'open'),
+    customerId: Json.strOr(json, 'customer_id'),
+    providerOrgId: Json.strOr(json, 'provider_org_id'),
+    peerName: Json.strOr(json, 'peer_name'),
+    lastMessageBody: Json.strOr(json, 'last_message_body'),
+    lastMessageAt: Json.date(json, 'last_message_at'),
+    unreadCount: Json.intOr(json, 'unread_count'),
+  );
 }
 
 class Message {
@@ -108,11 +115,11 @@ class Message {
   final DateTime? createdAt;
 
   static Message fromJson(Map<String, dynamic> json) => Message(
-        id: Json.strOr(json, 'id'),
-        conversationId: Json.strOr(json, 'conversation_id'),
-        senderId: Json.strOr(json, 'sender_id'),
-        body: Json.strOr(json, 'body'),
-        isSystem: Json.boolOr(json, 'is_system'),
-        createdAt: Json.date(json, 'created_at'),
-      );
+    id: Json.strOr(json, 'id'),
+    conversationId: Json.strOr(json, 'conversation_id'),
+    senderId: Json.strOr(json, 'sender_id'),
+    body: Json.strOr(json, 'body'),
+    isSystem: Json.boolOr(json, 'is_system'),
+    createdAt: Json.date(json, 'created_at'),
+  );
 }

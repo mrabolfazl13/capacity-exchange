@@ -50,17 +50,17 @@ class OfferFilters {
   ];
 
   int get activeFilterCount => [
-        q,
-        categoryId,
-        city,
-        country,
-        from,
-        to,
-        minQuantity,
-        maxUnitCents,
-        minRating,
-        bookingMode,
-      ].where((v) => v != null && '$v'.isNotEmpty).length;
+    q,
+    categoryId,
+    city,
+    country,
+    from,
+    to,
+    minQuantity,
+    maxUnitCents,
+    minRating,
+    bookingMode,
+  ].where((v) => v != null && '$v'.isNotEmpty).length;
 
   bool get hasActiveFilters => activeFilterCount > 0;
 
@@ -81,18 +81,25 @@ class OfferFilters {
   }) {
     return OfferFilters(
       q: identical(q, _unset) ? this.q : q as String?,
-      categoryId: identical(categoryId, _unset) ? this.categoryId : categoryId as String?,
+      categoryId: identical(categoryId, _unset)
+          ? this.categoryId
+          : categoryId as String?,
       city: identical(city, _unset) ? this.city : city as String?,
       country: identical(country, _unset) ? this.country : country as String?,
       from: identical(from, _unset) ? this.from : from as DateTime?,
       to: identical(to, _unset) ? this.to : to as DateTime?,
-      minQuantity:
-          identical(minQuantity, _unset) ? this.minQuantity : minQuantity as int?,
-      maxUnitCents:
-          identical(maxUnitCents, _unset) ? this.maxUnitCents : maxUnitCents as int?,
-      minRating: identical(minRating, _unset) ? this.minRating : minRating as double?,
-      bookingMode:
-          identical(bookingMode, _unset) ? this.bookingMode : bookingMode as String?,
+      minQuantity: identical(minQuantity, _unset)
+          ? this.minQuantity
+          : minQuantity as int?,
+      maxUnitCents: identical(maxUnitCents, _unset)
+          ? this.maxUnitCents
+          : maxUnitCents as int?,
+      minRating: identical(minRating, _unset)
+          ? this.minRating
+          : minRating as double?,
+      bookingMode: identical(bookingMode, _unset)
+          ? this.bookingMode
+          : bookingMode as String?,
       sort: sort ?? this.sort,
       limit: limit ?? this.limit,
       offset: offset ?? this.offset,
@@ -106,15 +113,19 @@ class OfferFilters {
   Map<String, dynamic> toQuery() {
     return {
       if (q != null && q!.trim().isNotEmpty) 'q': q!.trim(),
-      if (categoryId != null && categoryId!.isNotEmpty) 'category_id': categoryId,
+      if (categoryId != null && categoryId!.isNotEmpty)
+        'category_id': categoryId,
       if (city != null && city!.trim().isNotEmpty) 'city': city!.trim(),
-      if (country != null && country!.trim().isNotEmpty) 'country': country!.trim(),
+      if (country != null && country!.trim().isNotEmpty)
+        'country': country!.trim(),
       if (from != null) 'from': Format.dateParam(from!),
       if (to != null) 'to': Format.dateParam(to!),
       if (minQuantity != null && minQuantity! > 0) 'min_quantity': minQuantity,
-      if (maxUnitCents != null && maxUnitCents! > 0) 'max_unit_cents': maxUnitCents,
+      if (maxUnitCents != null && maxUnitCents! > 0)
+        'max_unit_cents': maxUnitCents,
       if (minRating != null && minRating! > 0) 'min_rating': minRating,
-      if (bookingMode != null && bookingMode!.isNotEmpty) 'booking_mode': bookingMode,
+      if (bookingMode != null && bookingMode!.isNotEmpty)
+        'booking_mode': bookingMode,
       'sort': sort,
       'limit': limit,
       'offset': offset,
@@ -148,29 +159,34 @@ class DemandDraft {
   final int? budgetMaxCents;
 
   Map<String, dynamic> toJson() => {
-        'description': description.trim(),
-        if (categoryId != null && categoryId!.isNotEmpty) 'category_id': categoryId,
-        if (city != null && city!.trim().isNotEmpty) 'address': {'city': city!.trim()},
-        if (desiredStart != null) 'desired_start': Format.isoUtc(desiredStart!),
-        if (desiredEnd != null) 'desired_end': Format.isoUtc(desiredEnd!),
-        'quantity': quantity,
-        if (budgetMinCents != null) 'budget_min_cents': budgetMinCents,
-        if (budgetMaxCents != null) 'budget_max_cents': budgetMaxCents,
-      };
+    'description': description.trim(),
+    if (categoryId != null && categoryId!.isNotEmpty) 'category_id': categoryId,
+    if (city != null && city!.trim().isNotEmpty)
+      'address': {'city': city!.trim()},
+    if (desiredStart != null) 'desired_start': Format.isoUtc(desiredStart!),
+    if (desiredEnd != null) 'desired_end': Format.isoUtc(desiredEnd!),
+    'quantity': quantity,
+    if (budgetMinCents != null) 'budget_min_cents': budgetMinCents,
+    if (budgetMaxCents != null) 'budget_max_cents': budgetMaxCents,
+  };
 }
 
 /// Draft for `POST /disputes` (§5.7): kind is one of
 /// quality | no_show | payment | damage | other.
 class DisputeDraft {
-  const DisputeDraft({required this.bookingId, required this.kind, required this.description});
+  const DisputeDraft({
+    required this.bookingId,
+    required this.kind,
+    required this.description,
+  });
 
   final String bookingId;
   final String kind;
   final String description;
 
   Map<String, dynamic> toJson() => {
-        'booking_id': bookingId,
-        'kind': kind,
-        'description': description.trim(),
-      };
+    'booking_id': bookingId,
+    'kind': kind,
+    'description': description.trim(),
+  };
 }

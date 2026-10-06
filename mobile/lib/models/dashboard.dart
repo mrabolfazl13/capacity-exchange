@@ -24,25 +24,30 @@ class CustomerDashboard {
   final List<Booking> recentBookings;
 
   static CustomerDashboard empty() => const CustomerDashboard(
-        activeBookings: 0,
-        spendCents: 0,
-        currency: 'USD',
-        unreadNotifications: 0,
-        recentOrders: [],
-        recentBookings: [],
-      );
+    activeBookings: 0,
+    spendCents: 0,
+    currency: 'USD',
+    unreadNotifications: 0,
+    recentOrders: [],
+    recentBookings: [],
+  );
 
-  static CustomerDashboard fromJson(Map<String, dynamic> json) => CustomerDashboard(
+  static CustomerDashboard fromJson(Map<String, dynamic> json) =>
+      CustomerDashboard(
         activeBookings: Json.intOr(json, 'active_bookings'),
-        spendCents: Json.intOr(json, 'spend_cents') + Json.intOr(json, 'total_spend_cents'),
+        spendCents:
+            Json.intOr(json, 'spend_cents') +
+            Json.intOr(json, 'total_spend_cents'),
         currency: Json.strOr(json, 'currency', 'USD'),
         unreadNotifications: Json.intOr(json, 'unread_notifications'),
-        recentOrders:
-            Json.list(json, 'recent_orders').map(Order.fromJson).toList(growable: false),
-        recentBookings:
-            Json.list(json, 'recent_bookings')
-                .map(Booking.fromJson)
-                .toList(growable: false),
+        recentOrders: Json.list(
+          json,
+          'recent_orders',
+        ).map(Order.fromJson).toList(growable: false),
+        recentBookings: Json.list(
+          json,
+          'recent_bookings',
+        ).map(Booking.fromJson).toList(growable: false),
       );
 }
 
@@ -70,14 +75,14 @@ class ProviderDashboard {
   final List<Offer> topOffers;
 
   static ProviderDashboard empty() => const ProviderDashboard(
-        utilization: 0,
-        isPercent: false,
-        bookingsByStatus: {},
-        revenueCents: 0,
-        currency: 'USD',
-        upcomingBookings: [],
-        topOffers: [],
-      );
+    utilization: 0,
+    isPercent: false,
+    bookingsByStatus: {},
+    revenueCents: 0,
+    currency: 'USD',
+    upcomingBookings: [],
+    topOffers: [],
+  );
 
   static ProviderDashboard fromJson(Map<String, dynamic> json) {
     final byStatus = <String, int>{};
@@ -99,7 +104,8 @@ class ProviderDashboard {
         if (key.isNotEmpty) byStatus[key] = Json.intOr(m, 'count');
       }
     }
-    final util = Json.doubleOrNull(json, 'utilization') ??
+    final util =
+        Json.doubleOrNull(json, 'utilization') ??
         Json.doubleOrNull(json, 'utilization_pct');
     return ProviderDashboard(
       utilization: util ?? 0,
@@ -107,9 +113,14 @@ class ProviderDashboard {
       bookingsByStatus: byStatus,
       revenueCents: Json.intOr(json, 'revenue_cents'),
       currency: Json.strOr(json, 'currency', 'USD'),
-      upcomingBookings:
-          Json.list(json, 'upcoming_bookings').map(Booking.fromJson).toList(growable: false),
-      topOffers: Json.list(json, 'top_offers').map(Offer.fromJson).toList(growable: false),
+      upcomingBookings: Json.list(
+        json,
+        'upcoming_bookings',
+      ).map(Booking.fromJson).toList(growable: false),
+      topOffers: Json.list(
+        json,
+        'top_offers',
+      ).map(Offer.fromJson).toList(growable: false),
     );
   }
 }

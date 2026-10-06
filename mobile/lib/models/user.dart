@@ -67,13 +67,13 @@ class Organization {
   final String? country;
 
   static Organization fromJson(Map<String, dynamic> json) => Organization(
-        id: Json.strOr(json, 'id'),
-        name: Json.strOr(json, 'name'),
-        slug: Json.strOr(json, 'slug'),
-        currency: Json.strOr(json, 'currency', 'USD'),
-        timezone: Json.strOr(json, 'timezone', 'UTC'),
-        country: Json.str(json, 'country'),
-      );
+    id: Json.strOr(json, 'id'),
+    name: Json.strOr(json, 'name'),
+    slug: Json.strOr(json, 'slug'),
+    currency: Json.strOr(json, 'currency', 'USD'),
+    timezone: Json.strOr(json, 'timezone', 'UTC'),
+    country: Json.str(json, 'country'),
+  );
 }
 
 class Category {
@@ -84,8 +84,8 @@ class Category {
   final String label;
 
   static Category fromJson(Map<String, dynamic> json) => Category(
-        id: Json.strOr(json, 'id'),
-        key: Json.strOr(json, 'key'),
-        label: Json.strOr(json, 'label', Json.strOr(json, 'key')),
-      );
+    id: Json.strOr(json, 'id'),
+    key: Json.strOr(json, 'key'),
+    label: Json.strOr(json, 'label', Json.strOr(json, 'key')),
+  );
 }

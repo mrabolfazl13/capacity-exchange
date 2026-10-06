@@ -7,16 +7,11 @@ class Format {
   const Format._();
 
   /// Money: integer minor units + ISO currency, never floats in APIs.
-  /// Display example: `1,250.00 USD`.
-  static String money(int cents, String currency, {String locale = 'en'}) {
-    final value = cents / 100; // display division only, not sent anywhere
-    final symbol = NumberFormat.currency(name: currency, locale: locale).symbol;
-    final formatted = NumberFormat.currency(
-      locale: locale,
-      symbol: symbol.isEmpty ? '$currency ' : symbol,
-      name: currency,
-    ).format(value);
-    return formatted;
+  /// Display example: `$1,250.00 USD`. The ISO code is always readable, so a
+  /// currency intl has no symbol for still lands as `IRR 1,250.00`.
+  static String money(int cents, String currency) {
+    final formatted = NumberFormat.currency(name: currency).format(cents / 100);
+    return formatted.contains(currency) ? formatted : '$formatted $currency';
   }
 
   /// Compact money for dense cards: `1.2k USD`.

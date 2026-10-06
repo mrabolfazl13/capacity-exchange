@@ -51,25 +51,27 @@ class Order {
   bool get isCancelled => status == 'cancelled' || status == 'refunded';
 
   static Order fromJson(Map<String, dynamic> json) => Order(
-        id: Json.strOr(json, 'id'),
-        number: Json.strOr(json, 'number'),
-        buyerId: Json.strOr(json, 'buyer_id'),
-        providerOrgId: Json.strOr(json, 'provider_org_id'),
-        bookingId: Json.str(json, 'booking_id'),
-        status: Json.strOr(json, 'status', 'draft'),
-        paymentStatus: Json.strOr(json, 'payment_status', 'unpaid'),
-        subtotalCents: Json.intOr(json, 'subtotal_cents'),
-        discountCents: Json.intOr(json, 'discount_cents'),
-        commissionCents: Json.intOr(json, 'commission_cents'),
-        totalCents: Json.intOr(json, 'total_cents'),
-        currency: Json.strOr(json, 'currency', 'USD'),
-        lineItems:
-            Json.list(json, 'line_items').map(LineItem.fromJson).toList(growable: false),
-        placedAt: Json.date(json, 'placed_at'),
-        createdAt: Json.date(json, 'created_at'),
-        offerTitle: Json.strOr(json, 'offer_title'),
-        orgName: Json.strOr(json, 'org_name'),
-      );
+    id: Json.strOr(json, 'id'),
+    number: Json.strOr(json, 'number'),
+    buyerId: Json.strOr(json, 'buyer_id'),
+    providerOrgId: Json.strOr(json, 'provider_org_id'),
+    bookingId: Json.str(json, 'booking_id'),
+    status: Json.strOr(json, 'status', 'draft'),
+    paymentStatus: Json.strOr(json, 'payment_status', 'unpaid'),
+    subtotalCents: Json.intOr(json, 'subtotal_cents'),
+    discountCents: Json.intOr(json, 'discount_cents'),
+    commissionCents: Json.intOr(json, 'commission_cents'),
+    totalCents: Json.intOr(json, 'total_cents'),
+    currency: Json.strOr(json, 'currency', 'USD'),
+    lineItems: Json.list(
+      json,
+      'line_items',
+    ).map(LineItem.fromJson).toList(growable: false),
+    placedAt: Json.date(json, 'placed_at'),
+    createdAt: Json.date(json, 'created_at'),
+    offerTitle: Json.strOr(json, 'offer_title'),
+    orgName: Json.strOr(json, 'org_name'),
+  );
 }
 
 class LineItem {
@@ -86,11 +88,11 @@ class LineItem {
   final int totalCents;
 
   static LineItem fromJson(Map<String, dynamic> json) => LineItem(
-        description: Json.strOr(json, 'description'),
-        qty: Json.intOr(json, 'qty', 1),
-        unitCents: Json.intOr(json, 'unit_cents'),
-        totalCents: Json.intOr(json, 'total_cents'),
-      );
+    description: Json.strOr(json, 'description'),
+    qty: Json.intOr(json, 'qty', 1),
+    unitCents: Json.intOr(json, 'unit_cents'),
+    totalCents: Json.intOr(json, 'total_cents'),
+  );
 }
 
 /// `payments` (§5.6). `mock` provider confirms immediately.
@@ -127,21 +129,24 @@ class Payment {
 
   bool get isSucceeded => status == 'succeeded';
   bool get isTerminal =>
-      isSucceeded || status == 'failed' || status == 'canceled' || status == 'refunded';
+      isSucceeded ||
+      status == 'failed' ||
+      status == 'canceled' ||
+      status == 'refunded';
 
   static Payment fromJson(Map<String, dynamic> json) => Payment(
-        id: Json.strOr(json, 'id'),
-        orderId: Json.strOr(json, 'order_id'),
-        providerKey: Json.strOr(json, 'provider_key', 'mock'),
-        status: Json.strOr(json, 'status', 'created'),
-        amountCents: Json.intOr(json, 'amount_cents'),
-        currency: Json.strOr(json, 'currency', 'USD'),
-        clientSecret: Json.str(json, 'client_secret'),
-        providerPaymentId: Json.str(json, 'provider_payment_id'),
-        failureReason: Json.str(json, 'failure_reason'),
-        confirmedAt: Json.date(json, 'confirmed_at'),
-        createdAt: Json.date(json, 'created_at'),
-      );
+    id: Json.strOr(json, 'id'),
+    orderId: Json.strOr(json, 'order_id'),
+    providerKey: Json.strOr(json, 'provider_key', 'mock'),
+    status: Json.strOr(json, 'status', 'created'),
+    amountCents: Json.intOr(json, 'amount_cents'),
+    currency: Json.strOr(json, 'currency', 'USD'),
+    clientSecret: Json.str(json, 'client_secret'),
+    providerPaymentId: Json.str(json, 'provider_payment_id'),
+    failureReason: Json.str(json, 'failure_reason'),
+    confirmedAt: Json.date(json, 'confirmed_at'),
+    createdAt: Json.date(json, 'created_at'),
+  );
 }
 
 /// `refunds` (§5.6) — created automatically by the server on cancellation
@@ -170,13 +175,13 @@ class Refund {
   final DateTime? processedAt;
 
   static Refund fromJson(Map<String, dynamic> json) => Refund(
-        id: Json.strOr(json, 'id'),
-        paymentId: Json.strOr(json, 'payment_id'),
-        orderId: Json.strOr(json, 'order_id'),
-        status: Json.strOr(json, 'status', 'pending'),
-        amountCents: Json.intOr(json, 'amount_cents'),
-        currency: Json.strOr(json, 'currency', 'USD'),
-        reason: Json.str(json, 'reason'),
-        processedAt: Json.date(json, 'processed_at'),
-      );
+    id: Json.strOr(json, 'id'),
+    paymentId: Json.strOr(json, 'payment_id'),
+    orderId: Json.strOr(json, 'order_id'),
+    status: Json.strOr(json, 'status', 'pending'),
+    amountCents: Json.intOr(json, 'amount_cents'),
+    currency: Json.strOr(json, 'currency', 'USD'),
+    reason: Json.str(json, 'reason'),
+    processedAt: Json.date(json, 'processed_at'),
+  );
 }

@@ -103,17 +103,17 @@ class Match {
   bool get isSuggested => status == 'suggested';
 
   static Match fromJson(Map<String, dynamic> json) => Match(
-        id: Json.strOr(json, 'id'),
-        demandId: Json.strOr(json, 'demand_id'),
-        offerId: Json.strOr(json, 'offer_id'),
-        status: Json.strOr(json, 'status', 'suggested'),
-        score: Json.doubleOrNull(json, 'score') ?? 0,
-        reasons: Json.strings(json, 'reasons'),
-        offerTitle: Json.strOr(json, 'offer_title'),
-        orgName: Json.strOr(json, 'org_name'),
-        unitAmountCents: Json.intOr(json, 'unit_amount_cents'),
-        currency: Json.strOr(json, 'currency', 'USD'),
-        providerActionAt: Json.date(json, 'provider_action_at'),
-        createdAt: Json.date(json, 'created_at'),
-      );
+    id: Json.strOr(json, 'id'),
+    demandId: Json.strOr(json, 'demand_id'),
+    offerId: Json.strOr(json, 'offer_id'),
+    status: Json.strOr(json, 'status', 'suggested'),
+    score: Json.doubleOrNull(json, 'score') ?? 0,
+    reasons: Json.strings(json, 'reasons'),
+    offerTitle: Json.strOr(json, 'offer_title'),
+    orgName: Json.strOr(json, 'org_name'),
+    unitAmountCents: Json.intOr(json, 'unit_amount_cents'),
+    currency: Json.strOr(json, 'currency', 'USD'),
+    providerActionAt: Json.date(json, 'provider_action_at'),
+    createdAt: Json.date(json, 'created_at'),
+  );
 }

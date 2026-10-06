@@ -56,8 +56,10 @@ class Resource {
       country: Json.str(json, 'country') ?? _s(address['country']),
       line1: Json.str(json, 'line1') ?? _s(address['line1']),
       timezone: Json.strOr(json, 'timezone', 'UTC'),
-      definitions:
-          Json.list(json, 'definitions').map(CapacityDefinition.fromJson).toList(growable: false),
+      definitions: Json.list(
+        json,
+        'definitions',
+      ).map(CapacityDefinition.fromJson).toList(growable: false),
     );
   }
 
@@ -92,7 +94,8 @@ class CapacityDefinition {
   final int bufferAfterMinutes;
   final bool isActive;
 
-  static CapacityDefinition fromJson(Map<String, dynamic> json) => CapacityDefinition(
+  static CapacityDefinition fromJson(Map<String, dynamic> json) =>
+      CapacityDefinition(
         id: Json.strOr(json, 'id'),
         resourceId: Json.strOr(json, 'resource_id'),
         name: Json.strOr(json, 'name'),

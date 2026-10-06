@@ -1,5 +1,5 @@
 import 'json.dart';
-import 'page.dart';
+import 'envelope.dart';
 
 /// Marketplace offer flattened for display (offers joined with
 /// definition/resource/org, CONTRACTS §5.3).
@@ -91,10 +91,14 @@ class Offer {
 
   static Offer fromJson(Map<String, dynamic> json) {
     final address = Json.map(json, 'address');
-    final bands = Json.list(json, 'cancellation_policy')
-        .map(CancellationBand.fromJson)
+    final bands = Json.list(
+      json,
+      'cancellation_policy',
+    ).map(CancellationBand.fromJson).toList(growable: false);
+    final photos = Json.list(json, 'photos')
+        .map((p) => Json.strOr(p, 'url'))
+        .where((u) => u.isNotEmpty)
         .toList(growable: false);
-    final photos = Json.list(json, 'photos').map((p) => Json.strOr(p, 'url')).where((u) => u.isNotEmpty).toList(growable: false);
     return Offer(
       id: Json.strOr(json, 'id'),
       title: Json.strOr(json, 'title'),
@@ -105,7 +109,11 @@ class Offer {
       categoryId: Json.str(json, 'category_id'),
       categoryLabel: Json.str(json, 'category_label'),
       orgName: Json.strOr(json, 'org_name'),
-      resourceName: Json.strOr(json, 'resource_name', Json.strOr(json, 'resource__name')),
+      resourceName: Json.strOr(
+        json,
+        'resource_name',
+        Json.strOr(json, 'resource__name'),
+      ),
       unitLabel: Json.strOr(json, 'unit_label'),
       pricingMode: Json.strOr(json, 'pricing_mode', 'per_quantity'),
       unitAmountCents: Json.intOr(json, 'unit_amount_cents'),
@@ -124,8 +132,11 @@ class Offer {
       city: Json.str(json, 'city') ?? (address['city']?.toString()),
       country: Json.str(json, 'country') ?? (address['country']?.toString()),
       line1: Json.str(json, 'line1') ?? (address['line1']?.toString()),
-      ratingAvg: Json.doubleOrNull(json, 'rating_avg') ?? Json.doubleOrNull(json, 'avg_rating'),
-      ratingCount: Json.intOr(json, 'rating_count') + Json.intOr(json, 'review_count'),
+      ratingAvg:
+          Json.doubleOrNull(json, 'rating_avg') ??
+          Json.doubleOrNull(json, 'avg_rating'),
+      ratingCount:
+          Json.intOr(json, 'rating_count') + Json.intOr(json, 'review_count'),
       photos: photos,
     );
   }
@@ -163,13 +174,13 @@ class Review {
   final DateTime? createdAt;
 
   static Review fromJson(Map<String, dynamic> json) => Review(
-        id: Json.strOr(json, 'id'),
-        rating: Json.intOr(json, 'rating', 0).clamp(0, 5),
-        comment: Json.str(json, 'comment'),
-        reviewerName: Json.strOr(json, 'reviewer_name'),
-        providerReply: Json.str(json, 'provider_reply'),
-        createdAt: Json.date(json, 'created_at'),
-      );
+    id: Json.strOr(json, 'id'),
+    rating: Json.intOr(json, 'rating', 0).clamp(0, 5),
+    comment: Json.str(json, 'comment'),
+    reviewerName: Json.strOr(json, 'reviewer_name'),
+    providerReply: Json.str(json, 'provider_reply'),
+    createdAt: Json.date(json, 'created_at'),
+  );
 }
 
 /// `GET /availability/free` item: concrete free window for a definition.
@@ -185,13 +196,13 @@ class FreeWindow {
   final int freeQuantity;
 
   static FreeWindow fromJson(Map<String, dynamic> json) => FreeWindow(
-        start: Json.date(json, 'window_start') ?? DateTime.now(),
-        end: Json.date(json, 'window_end') ?? DateTime.now(),
-        freeQuantity: Json.intOr(json, 'free_quantity', 1),
-      );
+    start: Json.date(json, 'window_start') ?? DateTime.now(),
+    end: Json.date(json, 'window_end') ?? DateTime.now(),
+    freeQuantity: Json.intOr(json, 'free_quantity', 1),
+  );
 
-  static Page<FreeWindow> page(dynamic json) =>
-      Page<FreeWindow>.fromJson(json, FreeWindow.fromJson);
+  static ListEnvelope<FreeWindow> page(dynamic json) =>
+      ListEnvelope<FreeWindow>.fromJson(json, FreeWindow.fromJson);
 }
 
 /// Recurring availability rule for detail display (§5.2; dow 0=Monday).
@@ -209,9 +220,9 @@ class RecurringRule {
   final int quantity;
 
   static RecurringRule fromJson(Map<String, dynamic> json) => RecurringRule(
-        dow: Json.intOr(json, 'dow'),
-        startTime: Json.strOr(json, 'start_time', '--:--'),
-        endTime: Json.strOr(json, 'end_time', '--:--'),
-        quantity: Json.intOr(json, 'quantity', 1),
-      );
+    dow: Json.intOr(json, 'dow'),
+    startTime: Json.strOr(json, 'start_time', '--:--'),
+    endTime: Json.strOr(json, 'end_time', '--:--'),
+    quantity: Json.intOr(json, 'quantity', 1),
+  );
 }

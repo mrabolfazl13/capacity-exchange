@@ -10,7 +10,11 @@ abstract final class Json {
     return v == null ? null : '$v';
   }
 
-  static String strOr(Map<String, dynamic> m, String key, [String fallback = '']) {
+  static String strOr(
+    Map<String, dynamic> m,
+    String key, [
+    String fallback = '',
+  ]) {
     final v = m[key];
     return v == null ? fallback : '$v';
   }
@@ -33,7 +37,11 @@ abstract final class Json {
     return null;
   }
 
-  static bool boolOr(Map<String, dynamic> m, String key, [bool fallback = false]) {
+  static bool boolOr(
+    Map<String, dynamic> m,
+    String key, [
+    bool fallback = false,
+  ]) {
     final v = m[key];
     if (v is bool) return v;
     if (v is num) return v != 0;
