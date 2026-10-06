@@ -5,10 +5,9 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.schemas.common import ORMModel, WireDateTime, WireUUID
-from app.schemas.identity import RoleKey
 
 OrderStatus = Literal["draft", "placed", "paid", "fulfilled", "cancelled", "refunded"]
 OrderPaymentStatus = Literal["not_required", "unpaid", "paid", "refunded", "partially_refunded"]
@@ -35,6 +34,7 @@ class OrderOut(ORMModel):
     buyer_id: WireUUID
     provider_org_id: WireUUID
     booking_id: WireUUID | None
+    promotion_id: WireUUID | None
     subtotal_cents: int
     discount_cents: int
     commission_cents: int
@@ -231,6 +231,21 @@ class AuditLogOut(ORMModel):
         return value if value is None or isinstance(value, str) else str(value)
 
 
+def check_discount_config(config: dict) -> dict:
+    """The two shapes a discount may take; `commerce` re-checks this when the money moves."""
+    kind = config.get("type")
+    if kind == "pct" and isinstance(config.get("bp"), int):
+        if not 0 <= config["bp"] <= 10000:
+            raise ValueError("bp must be within 0..10000")
+        return config
+    if kind == "fixed" and isinstance(config.get("cents"), int):
+        if config["cents"] < 0:
+            raise ValueError("cents must be >= 0")
+        return config
+    raise ValueError('discount_config must be {"type":"pct","bp":N} or '
+                     '{"type":"fixed","cents":N,"currency":"X"}')
+
+
 class PromotionInput(ORMModel):
     name: str = Field(min_length=2, max_length=120)
     kind: Literal["coupon", "campaign"] = "coupon"
@@ -252,16 +267,44 @@ class PromotionInput(ORMModel):
     @field_validator("discount_config")
     @classmethod
     def _shape(cls, v: dict) -> dict:
-        kind = v.get("type")
-        if kind == "pct" and isinstance(v.get("bp"), int):
-            if not 0 <= v["bp"] <= 10000:
-                raise ValueError("bp must be within 0..10000")
-            return v
-        if kind == "fixed" and isinstance(v.get("cents"), int):
-            if v["cents"] < 0:
-                raise ValueError("cents must be >= 0")
-            return v
-        raise ValueError('discount_config must be {"type":"pct","bp":N} or {"type":"fixed","cents":N,"currency":"X"}')
+        return check_discount_config(v)
+
+    @model_validator(mode="after")
+    def _coherent_offer(self) -> "PromotionInput":
+        # The database has the same window rule as a CHECK; catching it here turns a
+        # rejected write into a 422 that names the field.
+        if self.ends_at <= self.starts_at:
+            raise ValueError("ends_at must be after starts_at")
+        if self.kind == "coupon" and not self.code:
+            raise ValueError("a coupon needs a code for the buyer to enter")
+        if self.kind == "campaign" and self.code:
+            raise ValueError("a campaign is not redeemable, so it has no code")
+        return self
+
+
+class PromotionPatch(ORMModel):
+    """Only what an operator changes after launch; `used_count` is redemptions, never typed."""
+
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    discount_config: dict | None = None
+    min_order_cents: int | None = Field(default=None, ge=0)
+    applies_to: dict | None = None
+    usage_limit: int | None = Field(default=None, ge=1)
+    per_user_limit: int | None = Field(default=None, ge=1)
+    starts_at: WireDateTime | None = None
+    ends_at: WireDateTime | None = None
+    status: Literal["draft", "active", "disabled"] | None = None
+
+    @field_validator("discount_config")
+    @classmethod
+    def _shape(cls, v: dict | None) -> dict | None:
+        return v if v is None else check_discount_config(v)
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> "PromotionPatch":
+        if not self.model_dump(exclude_none=True):
+            raise ValueError("send at least one field to change")
+        return self
 
 
 class PromotionOut(ORMModel):
@@ -279,6 +322,21 @@ class PromotionOut(ORMModel):
     ends_at: WireDateTime
     status: Literal["draft", "active", "expired", "disabled"]
     created_by: WireUUID | None
+    created_at: WireDateTime
+    created_by_name: str | None = None
+
+
+class CouponRedemptionOut(ORMModel):
+    id: WireUUID
+    promotion_id: WireUUID
+    user_id: WireUUID
+    order_id: WireUUID | None
+    discount_cents: int
+    redeemed_at: WireDateTime
+    user_name: str | None = None
+    user_email: str | None = None
+    order_number: str | None = None
+    order_total_cents: int | None = None
 
 
 class CategoryPatch(ORMModel):
@@ -318,14 +376,3 @@ class AdminDisputeOut(DisputeOut):
     order_refunded_cents: int | None = None
     order_payment_status: str | None = None
     age_hours: float | None = None
-
-
-class RoleInput(ORMModel):
-    role: RoleKey
-
-
-class UserRoleOut(ORMModel):
-    user_id: WireUUID
-    role: RoleKey
-    granted_by: WireUUID | None
-    created_at: WireDateTime

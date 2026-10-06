@@ -17,32 +17,39 @@ from fastapi import APIRouter, Query, Request
 
 from app.api.v1.deps import ActorDep, PageDep, envelope, resolve_window
 from app.core.deps import SessionDep
-from app.core.errors import OwnershipRequired, ValidationFailed
-from app.models.crosscut import DISPUTE_KINDS, DISPUTE_STATUSES
-from app.models.identity import ORG_STATUSES, ROLE_KEYS
+from app.core.errors import RoleRequired, ValidationFailed
+from app.models.crosscut import (
+    DISPUTE_KINDS,
+    DISPUTE_STATUSES,
+    PROMOTION_KINDS,
+    PROMO_STATUSES,
+)
+from app.models.identity import ORG_STATUSES
 from app.schemas.capacity import CapacityCategoryOut
 from app.schemas.commerce import (
     AdminDisputeOut,
     AdminProviderOut,
     AuditLogOut,
     CategoryPatch,
+    CouponRedemptionOut,
+    PromotionInput,
+    PromotionOut,
+    PromotionPatch,
 )
 from app.schemas.dashboard import PlatformAnalytics
-from app.schemas.identity import AdminUserRow
+from app.schemas.identity import AdminUserRow, RoleInput, UserRoleOut
 from app.services import admin as svc
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 ANALYTICS_MAX_DAYS = 92
 ANALYTICS_DEFAULT_DAYS = 30
-#: §4: `customer` is implicit on every account, so filtering by it would match everyone.
-#: Offering it would read as a real segment, therefore it is not an accepted value here.
-GRANTABLE_ROLES = tuple(role for role in ROLE_KEYS if role != "customer")
 
 
 def _require_admin(actor) -> None:
     if not actor.is_platform_admin:
-        raise OwnershipRequired("Platform role required")
+        raise RoleRequired("Platform role required",
+                           details={"required_roles": ["platform_admin"]})
 
 
 def _one_of(value: str | None, allowed: tuple[str, ...], label: str) -> None:
@@ -61,12 +68,45 @@ async def list_users(session: SessionDep, actor: ActorDep, page: PageDep,
     _require_admin(actor)
     if role == "customer":
         raise ValidationFailed("Every account is a customer; filter by a granted role instead",
-                               details={"allowed": list(GRANTABLE_ROLES)})
-    _one_of(role, GRANTABLE_ROLES, "role")
+                               details={"allowed": list(svc.GRANTABLE_ROLES)})
+    _one_of(role, svc.GRANTABLE_ROLES, "role")
     items, total = await svc.list_users(session, q=q, role=role, is_active=active,
                                         limit=page.limit, offset=page.offset)
     return envelope([AdminUserRow.model_validate(i).model_dump(mode="json") for i in items],
                     total, page)
+
+
+# -------------------------------------------------------------------------- roles
+
+
+@router.get("/users/{user_id}/roles")
+async def list_user_roles(user_id: uuid.UUID, session: SessionDep, actor: ActorDep,
+                          page: PageDep) -> dict:
+    _require_admin(actor)
+    await svc.load_user(session, user_id)
+    items, total = await svc.list_roles(session, user_id, limit=page.limit, offset=page.offset)
+    return envelope([UserRoleOut.model_validate(i).model_dump(mode="json") for i in items],
+                    total, page)
+
+
+@router.post("/users/{user_id}/roles", status_code=201)
+async def grant_user_role(user_id: uuid.UUID, body: RoleInput, request: Request,
+                          session: SessionDep, actor: ActorDep) -> dict:
+    """A grant reaches the caller on its very next request, and a revocation stops it there."""
+    _require_admin(actor)
+    user = await svc.load_user(session, user_id)
+    grant = await svc.grant_role(session, user, body.role, actor_user_id=actor.user_id,
+                                 request=request)
+    return UserRoleOut.model_validate(grant).model_dump(mode="json")
+
+
+@router.delete("/users/{user_id}/roles/{role}", status_code=204)
+async def revoke_user_role(user_id: uuid.UUID, role: str, request: Request, session: SessionDep,
+                           actor: ActorDep) -> None:
+    _require_admin(actor)
+    _one_of(role, svc.GRANTABLE_ROLES, "role")
+    user = await svc.load_user(session, user_id)
+    await svc.revoke_role(session, user, role, actor_user_id=actor.user_id, request=request)
 
 
 # ----------------------------------------------------------------------- providers
@@ -98,7 +138,8 @@ async def dispute_queue(session: SessionDep, actor: ActorDep, page: PageDep,
                         oldest_first: bool = False) -> dict:
     """Support's working list: each row carries the service, the money and its age."""
     if not actor.is_support:
-        raise OwnershipRequired("Support role required")
+        raise RoleRequired("Support role required",
+                             details={"required_roles": ["support"]})
     _one_of(status, DISPUTE_STATUSES, "dispute status")
     _one_of(kind, DISPUTE_KINDS, "dispute kind")
     items, total = await svc.dispute_queue(
@@ -146,6 +187,67 @@ async def analytics(session: SessionDep, actor: ActorDep,
                                 default_days=ANALYTICS_DEFAULT_DAYS)
     rows = await svc.platform_analytics(session, start=start, end=end)
     return PlatformAnalytics.model_validate(rows).model_dump(mode="json", by_alias=True)
+
+
+# --------------------------------------------------------------------- promotions
+
+
+@router.get("/promotions")
+async def list_promotions(session: SessionDep, actor: ActorDep, page: PageDep,
+                          q: Annotated[str | None, Query(max_length=200)] = None,
+                          status: Annotated[str | None, Query(max_length=16)] = None,
+                          kind: Annotated[str | None, Query(max_length=16)] = None) -> dict:
+    _require_admin(actor)
+    _one_of(status, PROMO_STATUSES, "promotion status")
+    _one_of(kind, PROMOTION_KINDS, "promotion kind")
+    items, total = await svc.list_promotions(session, q=q, status=status, kind=kind,
+                                             limit=page.limit, offset=page.offset)
+    return envelope([PromotionOut.model_validate(i).model_dump(mode="json") for i in items],
+                    total, page)
+
+
+@router.post("/promotions", status_code=201)
+async def create_promotion(body: PromotionInput, request: Request, session: SessionDep,
+                           actor: ActorDep) -> dict:
+    """A coupon is live money the moment it is `active`; the order path reads the same row."""
+    _require_admin(actor)
+    promotion = await svc.create_promotion(session, body.model_dump(),
+                                           actor_user_id=actor.user_id, request=request)
+    return PromotionOut.model_validate(
+        svc.promotion_to_dict(promotion, created_by_name=actor.full_name)
+    ).model_dump(mode="json")
+
+
+@router.get("/promotions/{promotion_id}")
+async def get_promotion(promotion_id: uuid.UUID, session: SessionDep, actor: ActorDep) -> dict:
+    _require_admin(actor)
+    return PromotionOut.model_validate(
+        svc.promotion_to_dict(await svc.load_promotion(session, promotion_id))
+    ).model_dump(mode="json")
+
+
+@router.patch("/promotions/{promotion_id}")
+async def patch_promotion(promotion_id: uuid.UUID, body: PromotionPatch, request: Request,
+                          session: SessionDep, actor: ActorDep) -> dict:
+    """Limits, window and status move; the redemption count belongs to the orders (§5.6)."""
+    _require_admin(actor)
+    promotion = await svc.load_promotion(session, promotion_id)
+    promotion = await svc.patch_promotion(session, promotion, body.model_dump(exclude_none=True),
+                                          actor_user_id=actor.user_id, request=request)
+    return PromotionOut.model_validate(
+        svc.promotion_to_dict(promotion, created_by_name=actor.full_name)
+    ).model_dump(mode="json")
+
+
+@router.get("/promotions/{promotion_id}/redemptions")
+async def promotion_redemptions(promotion_id: uuid.UUID, session: SessionDep, actor: ActorDep,
+                                page: PageDep) -> dict:
+    _require_admin(actor)
+    await svc.load_promotion(session, promotion_id)
+    items, total = await svc.promotion_redemptions(session, promotion_id, limit=page.limit,
+                                                   offset=page.offset)
+    return envelope([CouponRedemptionOut.model_validate(i).model_dump(mode="json")
+                     for i in items], total, page)
 
 
 # ---------------------------------------------------------------------- categories

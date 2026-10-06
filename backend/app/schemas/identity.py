@@ -157,3 +157,14 @@ class AdminUserRow(ORMModel):
     last_login_at: WireDateTime | None = None
     #: The organizations a platform operator can see without opening the org page (§8).
     org_names: list[str] = []
+
+
+class RoleInput(ORMModel):
+    role: RoleKey
+
+
+class UserRoleOut(ORMModel):
+    user_id: WireUUID
+    role: RoleKey
+    granted_by: WireUUID | None
+    created_at: WireDateTime

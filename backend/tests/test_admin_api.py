@@ -62,7 +62,7 @@ async def test_the_admin_surface_is_behind_a_platform_role(client, db):
                             (support, "support")):
             denied = await client.get(path, headers=auth(tokens))
             assert denied.status_code == 403, f"{path} as {who}"
-            assert denied.json()["error"]["code"] == "ownership_required"
+            assert denied.json()["error"]["code"] == "role_required"
         assert await listed(client, admin, path) is not None, path
 
     # Support works the queue; it does not read identities, per-org money or the registry.

@@ -12,11 +12,12 @@ OTHER_DAY = (datetime.fromisoformat(DAY).date() + timedelta(days=7)).isoformat()
 
 
 async def live_offer(client, tokens, *, quantity: int = 2, name: str = "Bookable Room",
-                     booking_mode: str = "instant", **offer_changes) -> dict:
+                     booking_mode: str = "instant", category_key: str = "meeting_room",
+                     **offer_changes) -> dict:
     """A published offer backed by an availability rule — the smallest bookable thing."""
-    resource = await make_resource(client, tokens, name=name, definitions=[
-        {"name": "Hour slot", "unit_label": "hour", "min_quantity": 1,
-         "max_quantity": quantity}])
+    resource = await make_resource(client, tokens, name=name, category_key=category_key,
+                                   definitions=[{"name": "Hour slot", "unit_label": "hour",
+                                                 "min_quantity": 1, "max_quantity": quantity}])
     definition_id = resource["definitions"][0]["id"]
     await add_rule(client, tokens, resource["id"], definition_id, quantity=quantity)
     offer = await client.post("/offers", headers=auth(tokens), json={

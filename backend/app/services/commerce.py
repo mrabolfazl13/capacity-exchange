@@ -33,6 +33,7 @@ from app.core.errors import (
     ValidationFailed,
 )
 from app.models.booking import Booking
+from app.models.capacity import CapacityResource
 from app.models.commerce import (
     FULFILLMENT_STATUSES,
     Commission,
@@ -109,11 +110,35 @@ def _validate_coupon_shape(config: dict) -> tuple[str, int, str]:
     raise ValidationFailed("Unknown coupon discount_config")
 
 
+#: The filters an admin can narrow a coupon to (§5.6). A stored `applies_to` carrying any
+#: other key is one this build cannot evaluate, so it fails closed rather than granting a
+#: discount nobody asked for.
+COUPON_SCOPE_KEYS = ("org_id", "offer_id", "category_id")
+
+
+async def _scope_matches(session: AsyncSession, promo: Promotion, *, booking: Booking,
+                         offer: Offer) -> bool:
+    """An empty `applies_to` covers the whole platform; every key present has to match."""
+    applies = promo.applies_to or {}
+    if not set(applies) <= set(COUPON_SCOPE_KEYS):
+        return False
+    for key, value in (("org_id", booking.org_id), ("offer_id", offer.id)):
+        wanted = applies.get(key)
+        if wanted is not None and str(wanted) != str(value):
+            return False
+    wanted = applies.get("category_id")
+    if wanted is None:
+        return True
+    resource = await session.get(CapacityResource, offer.resource_id)
+    return resource is not None and str(wanted) == str(resource.category_id)
+
+
 async def quote_discount(session: AsyncSession, *, code: str | None, buyer_id: uuid.UUID,
-                         subtotal_cents: int, currency: str) -> tuple[Promotion | None, int]:
+                         booking: Booking, offer: Offer) -> tuple[Promotion | None, int]:
     """Return (promotion, discount_cents) for a coupon code; raises when it cannot apply."""
     if not code:
         return None, 0
+    subtotal_cents, currency = booking.total_cents, booking.currency
     promo = (
         await session.execute(
             select(Promotion).where(Promotion.code == code.upper()).limit(1)
@@ -124,6 +149,9 @@ async def quote_discount(session: AsyncSession, *, code: str | None, buyer_id: u
     now = utcnow()
     if not (promo.starts_at <= now < promo.ends_at):
         raise Conflict("Coupon code is outside its validity window")
+    if not await _scope_matches(session, promo, booking=booking, offer=offer):
+        raise Conflict("Coupon code does not apply to this service",
+                       details={"applies_to": promo.applies_to})
     if subtotal_cents < promo.min_order_cents:
         raise Conflict("Order is below the coupon minimum",
                        details={"min_order_cents": promo.min_order_cents})
@@ -150,6 +178,55 @@ async def quote_discount(session: AsyncSession, *, code: str | None, buyer_id: u
     return promo, min(discount, subtotal_cents)
 
 
+async def apply_coupon(session: AsyncSession, order: Order, *, code: str, buyer_id: uuid.UUID,
+                       booking: Booking, offer: Offer | None = None,
+                       request: Request | None = None) -> Order:
+    """Land a coupon on an order that has not been paid yet.
+
+    Confirmation opens the order before checkout, so the code the buyer types arrives on an
+    existing row: refusing it there would make coupons redeemable on no screen at all. Once a
+    payment exists the price is locked, because the captured amount would no longer match.
+    """
+    if order.payment_status != "unpaid":
+        raise Conflict("Order cannot be repriced once its money has moved",
+                       details={"order_id": str(order.id),
+                                "payment_status": order.payment_status})
+    if order.promotion_id or order.discount_cents:
+        raise Conflict("Order already carries a discount",
+                       details={"order_id": str(order.id)})
+    if await _active_payment(session, order.id) is not None:
+        raise Conflict("A payment is already in flight for this order",
+                       details={"order_id": str(order.id)})
+    offer = offer or await session.get(Offer, booking.offer_id)
+    if offer is None:
+        raise NotFound("Offer not found for booking")
+
+    promo, discount = await quote_discount(session, code=code, buyer_id=buyer_id,
+                                           booking=booking, offer=offer)
+    if discount <= 0:
+        raise Conflict("Coupon gives no discount on this order", details={"code": code})
+
+    before = {"total_cents": order.total_cents, "discount_cents": order.discount_cents,
+              "promotion_id": None}
+    order.discount_cents = min(discount, order.subtotal_cents)
+    order.total_cents = max(0, order.subtotal_cents - order.discount_cents)
+    # A code that covers the whole order leaves nothing to pay, and `not_required` is how
+    # a zero-total order is marked everywhere else (§5.6).
+    order.payment_status = "unpaid" if order.total_cents > 0 else "not_required"
+    order.promotion_id = promo.id
+    promo.used_count += 1
+    session.add(CouponRedemption(promotion_id=promo.id, user_id=buyer_id,
+                                 order_id=order.id, discount_cents=order.discount_cents))
+    await session.flush()
+    await record_audit(session, request, action="order.coupon_applied", entity_type="order",
+                       entity_id=order.id,
+                       before=before,
+                       after={"total_cents": order.total_cents,
+                              "discount_cents": order.discount_cents,
+                              "promotion_id": str(promo.id)})
+    return order
+
+
 async def create_order(session: AsyncSession, *, booking: Booking, offer: Offer | None = None,
                        buyer_id: uuid.UUID, coupon_code: str | None = None,
                        request: Request | None = None) -> Order:
@@ -157,18 +234,16 @@ async def create_order(session: AsyncSession, *, booking: Booking, offer: Offer 
     existing = await order_for_booking(session, booking.id)
     if existing is not None:
         if coupon_code:
-            # A placed order already fixed its price; re-quoting a coupon would be a silent no-op.
-            raise Conflict("Order already exists for this booking and cannot be re-couponed",
-                           details={"order_id": str(existing.id)})
+            return await apply_coupon(session, existing, code=coupon_code, buyer_id=buyer_id,
+                                      booking=booking, offer=offer, request=request)
         return existing
     offer = offer or await session.get(Offer, booking.offer_id)
     if offer is None:
         raise NotFound("Offer not found for booking")
 
     subtotal = booking.total_cents
-    promo, discount = await quote_discount(
-        session, code=coupon_code, buyer_id=buyer_id,
-        subtotal_cents=subtotal, currency=booking.currency)
+    promo, discount = await quote_discount(session, code=coupon_code, buyer_id=buyer_id,
+                                           booking=booking, offer=offer)
     total = max(0, subtotal - discount)
     order = Order(
         number=_order_number(utcnow()),

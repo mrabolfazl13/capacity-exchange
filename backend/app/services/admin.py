@@ -17,17 +17,21 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import record_audit
-from app.core.errors import NotFound, ValidationFailed
+from app.core.errors import Conflict, NotFound, ValidationFailed
 from app.models.booking import Booking
 from app.models.capacity import CapacityCategory, CapacityResource
 from app.models.commerce import Order
-from app.models.crosscut import AuditLog, Dispute, Review
-from app.models.identity import Organization, OrgStaff, User, UserRole
+from app.models.crosscut import AuditLog, CouponRedemption, Dispute, Promotion, Review
+from app.models.identity import Organization, OrgStaff, ROLE_KEYS, User, UserRole
 from app.models.marketplace import Offer
+from app.services import commerce
 from app.services import disputes as dispute_svc
 from app.services.dashboard import PAID_PAYMENT_STATUSES, SETTLED_PAYMENT_STATUSES
 
 TOP_CATEGORY_LIMIT = 8
+#: §4: `customer` is implicit on every account, so it is not something an admin grants and
+#: not a segment an operator can filter on — filtering by it would match every row.
+GRANTABLE_ROLES = tuple(role for role in ROLE_KEYS if role != "customer")
 
 
 def utcnow() -> datetime:
@@ -363,6 +367,196 @@ async def platform_analytics(session: AsyncSession, *, start: datetime,
                          ("gmv_cents", await _money_by_day(session, Order.total_cents - Order.refunded_cents,
                                                    start, end, paid))),
     }
+
+
+# -------------------------------------------------------------------------- roles
+
+
+async def load_user(session: AsyncSession, user_id: uuid.UUID) -> User:
+    user = await session.get(User, user_id)
+    if user is None:
+        raise NotFound("User not found")
+    return user
+
+
+async def list_roles(session: AsyncSession, user_id: uuid.UUID, *, limit: int = 20,
+                     offset: int = 0) -> tuple[list[dict], int]:
+    total = (await session.execute(
+        select(func.count()).select_from(UserRole).where(UserRole.user_id == user_id)
+    )).scalar_one()
+    rows = (await session.execute(
+        select(UserRole).where(UserRole.user_id == user_id)
+        .order_by(UserRole.created_at, UserRole.role).limit(limit).offset(offset)
+    )).scalars().all()
+    return [{"user_id": row.user_id, "role": row.role, "granted_by": row.granted_by,
+             "created_at": row.created_at} for row in rows], int(total)
+
+
+async def grant_role(session: AsyncSession, user: User, role: str, *,
+                     actor_user_id: uuid.UUID, request=None) -> UserRole:
+    """A global role is the platform's own grant; staff inside an organization is (§4)."""
+    if role not in GRANTABLE_ROLES:
+        raise ValidationFailed("Role cannot be granted",
+                               details={"allowed": list(GRANTABLE_ROLES)})
+    if await session.get(UserRole, (user.id, role)) is not None:
+        raise Conflict(f"{role} is already granted to this user")
+    grant = UserRole(user_id=user.id, role=role, granted_by=actor_user_id)
+    session.add(grant)
+    await session.flush()
+    await record_audit(session, request, action="admin.role_granted", entity_type="user",
+                       entity_id=user.id, after={"role": role}, actor_user_id=actor_user_id)
+    return grant
+
+
+async def revoke_role(session: AsyncSession, user: User, role: str, *,
+                      actor_user_id: uuid.UUID, request=None) -> None:
+    grant = await session.get(UserRole, (user.id, role))
+    if grant is None:
+        raise NotFound(f"{role} is not granted to this user")
+    if role == "platform_admin":
+        # Losing every administrator would lock the console with no way back in.
+        remaining = (await session.execute(
+            select(func.count()).select_from(UserRole)
+            .where(UserRole.role == "platform_admin", UserRole.user_id != user.id)
+        )).scalar_one()
+        if remaining == 0:
+            raise Conflict("The platform must keep at least one administrator")
+    await session.delete(grant)
+    await session.flush()
+    await record_audit(session, request, action="admin.role_revoked", entity_type="user",
+                       entity_id=user.id, before={"role": role}, actor_user_id=actor_user_id)
+
+
+# --------------------------------------------------------------------- promotions
+
+
+def _check_scope(applies: dict) -> None:
+    """A scope filter that `commerce` cannot evaluate, or that cannot match an id, would turn
+    a coupon into money the operator thinks is off but the order accepts."""
+    unknown = set(applies) - set(commerce.COUPON_SCOPE_KEYS)
+    if unknown:
+        raise ValidationFailed("Unknown coupon scope filter",
+                               details={"unknown": sorted(unknown),
+                                        "allowed": list(commerce.COUPON_SCOPE_KEYS)})
+    for key, wanted in applies.items():
+        try:
+            uuid.UUID(str(wanted))
+        except ValueError:
+            raise ValidationFailed(f"{key} must be an id",
+                                   details={key: wanted}) from None
+
+
+def promotion_to_dict(promo: Promotion, *, created_by_name: str | None = None) -> dict:
+    return {
+        "id": promo.id, "name": promo.name, "kind": promo.kind, "code": promo.code,
+        "discount_config": promo.discount_config, "min_order_cents": promo.min_order_cents,
+        "applies_to": promo.applies_to, "usage_limit": promo.usage_limit,
+        "used_count": promo.used_count, "per_user_limit": promo.per_user_limit,
+        "starts_at": promo.starts_at, "ends_at": promo.ends_at, "status": promo.status,
+        "created_by": promo.created_by, "created_at": promo.created_at,
+        "created_by_name": created_by_name,
+    }
+
+
+async def list_promotions(session: AsyncSession, *, q: str | None = None,
+                          status: str | None = None, kind: str | None = None,
+                          limit: int = 20,
+                          offset: int = 0) -> tuple[list[dict], int]:
+    stmt = (select(Promotion, User.full_name.label("created_by_name"))
+            .outerjoin(User, User.id == Promotion.created_by))
+    if q:
+        pattern = _pattern(q)
+        stmt = stmt.where(or_(Promotion.name.ilike(pattern), Promotion.code.ilike(pattern)))
+    if status:
+        stmt = stmt.where(Promotion.status == status)
+    if kind:
+        stmt = stmt.where(Promotion.kind == kind)
+    rows, total = await _page(session, stmt.order_by(Promotion.created_at.desc(), Promotion.id),
+                              limit, offset)
+    return [promotion_to_dict(row.Promotion, created_by_name=row.created_by_name)
+            for row in rows], total
+
+
+async def load_promotion(session: AsyncSession, promotion_id: uuid.UUID) -> Promotion:
+    promo = await session.get(Promotion, promotion_id)
+    if promo is None:
+        raise NotFound("Promotion not found")
+    return promo
+
+
+async def create_promotion(session: AsyncSession, values: dict, *, actor_user_id: uuid.UUID,
+                           request=None) -> Promotion:
+    """Store what the operator wrote; `used_count` only ever moves through a real order."""
+    _check_scope(values.get("applies_to") or {})
+    code = values.get("code")
+    if code is not None:
+        taken = (await session.execute(
+            select(Promotion.id).where(Promotion.code == code).limit(1))).scalar_one_or_none()
+        if taken is not None:
+            raise Conflict("Coupon code already exists", details={"code": code})
+    promo = Promotion(created_by=actor_user_id, **values)
+    session.add(promo)
+    await session.flush()
+    await record_audit(session, request, action="admin.promotion_created",
+                       entity_type="promotion", entity_id=promo.id,
+                       after={"code": promo.code, "kind": promo.kind, "status": promo.status,
+                              "discount_config": promo.discount_config})
+    return promo
+
+
+def _auditable(value: Any) -> Any:
+    """A JSONB column cannot hold a datetime, so the trail keeps the §1 wire form of it."""
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return value
+
+
+async def patch_promotion(session: AsyncSession, promo: Promotion, changes: dict, *,
+                          actor_user_id: uuid.UUID, request=None) -> Promotion:
+    """Limits and windows may move; the redemption count belongs to the orders, not here."""
+    if "applies_to" in changes:
+        _check_scope(changes["applies_to"] or {})
+    starts = changes.get("starts_at", promo.starts_at)
+    ends = changes.get("ends_at", promo.ends_at)
+    if ends <= starts:
+        raise ValidationFailed("ends_at must be after starts_at")
+    limit = changes.get("usage_limit", promo.usage_limit)
+    if limit is not None and limit < promo.used_count:
+        raise ValidationFailed("usage_limit is below the coupons already redeemed",
+                               details={"used_count": promo.used_count})
+    if changes.get("status") == "active" and ends <= utcnow():
+        raise Conflict("This window has already closed, so nothing could redeem it")
+    before = {key: _auditable(getattr(promo, key)) for key in changes}
+    after = {key: _auditable(value) for key, value in changes.items()}
+    for key, value in changes.items():
+        setattr(promo, key, value)
+    await session.flush()
+    await record_audit(session, request, action="admin.promotion_updated",
+                       entity_type="promotion", entity_id=promo.id,
+                       before=before, after=after, actor_user_id=actor_user_id)
+    return promo
+
+
+async def promotion_redemptions(session: AsyncSession, promotion_id: uuid.UUID, *,
+                                limit: int = 20,
+                                offset: int = 0) -> tuple[list[dict], int]:
+    """Who actually took the discount, on which order, and what it came off."""
+    stmt = (select(CouponRedemption, User.full_name, User.email, Order.number,
+                   Order.total_cents)
+            .join(User, User.id == CouponRedemption.user_id)
+            .outerjoin(Order, Order.id == CouponRedemption.order_id)
+            .where(CouponRedemption.promotion_id == promotion_id)
+            .order_by(CouponRedemption.redeemed_at.desc(), CouponRedemption.id))
+    rows, total = await _page(session, stmt, limit, offset)
+    return [
+        {"id": row.CouponRedemption.id, "promotion_id": row.CouponRedemption.promotion_id,
+         "user_id": row.CouponRedemption.user_id, "order_id": row.CouponRedemption.order_id,
+         "discount_cents": row.CouponRedemption.discount_cents,
+         "redeemed_at": row.CouponRedemption.redeemed_at, "user_name": row.full_name,
+         "user_email": row.email, "order_number": row.number,
+         "order_total_cents": row.total_cents}
+        for row in rows
+    ], total
 
 
 # ---------------------------------------------------------------------- categories
