@@ -143,7 +143,9 @@ async def list_capacities(session: SessionDep, actor: ActorDep, page: PageDep,
         scope_ids = {org_id}
     else:
         scope_ids = actor.org_ids
-    stmt = select(CapacityResource)
+    stmt = select(CapacityResource).options(selectinload(CapacityResource.definitions))
+    # `CapacityResourceOut` carries the unit list, so the relationship has to be loaded in the
+    # query: an async session cannot lazy-load it while Pydantic reads the row.
     if scope_ids is not None:
         if not scope_ids:
             return envelope([], 0, page)
