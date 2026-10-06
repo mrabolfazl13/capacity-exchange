@@ -55,7 +55,9 @@ async def current_user(request: Request, session: SessionDep,
     request.state.access_payload = payload
     request.state.current_user_id = user.id
     request.state.current_org_id = uuid.UUID(payload["org"]) if payload.get("org") else None
-    request.state.current_roles = _client_roles(payload)
+    # Roles are re-read instead of trusted from the token: revoking a support or platform
+    # role has to stop working on the next request, not when the access token expires (§4).
+    request.state.current_roles = await load_user_roles(session, user.id)
     return user
 
 
