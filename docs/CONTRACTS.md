@@ -396,7 +396,9 @@ may 500 because Redis is down.
 `DATABASE_URL` (required; dev default `postgresql+psycopg://capacity:capacity@localhost:5544/capacity`
 pointing at pgserver script), `SECRET_KEY` (dev default `dev-secret-change-me`),
 `ACCESS_TOKEN_TTL_MIN=30`, `REFRESH_TOKEN_TTL_DAYS=14`, `REDIS_URL=` (optional),
-`CELERY_MODE=local|celery` (default local), `CORS_ORIGINS=http://localhost:5173,tauri://localhost`,
+`CELERY_MODE=local|celery` (default local), `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost`
+(dev vite + the packaged desktop webview, whose origin on Windows is `http://tauri.localhost`
+and on macOS/Linux `tauri://localhost`),
 `WEBHOOK_SECRET=dev-webhook-secret`, `DEFAULT_COMMISSION_BP=1000`, `APP_ENV=dev|test|prod`,
 `SMTP_*` optional (email notifications become no-op records when unset),
 `PAYMENT_PROVIDER=mock`, `RATE_LIMIT_PER_MIN=120` (in-memory token bucket without Redis).

@@ -31,7 +31,11 @@ class Settings(BaseSettings):
     refresh_token_ttl_days: int = Field(default=14)
     redis_url: str = Field(default="")  # empty => DB-only behaviour (never 500 because Redis is down)
     celery_mode: Literal["local", "celery"] = Field(default="local")
-    cors_origins: str = Field(default="http://localhost:5173,tauri://localhost")
+    # `http://tauri.localhost` is the origin the packaged Windows webview reports; without it
+    # the installed desktop client is CORS-blocked while `vite dev` in a browser is not.
+    cors_origins: str = Field(
+        default="http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost",
+    )
     webhook_secret: str = Field(default="dev-webhook-secret")
     default_commission_bp: int = Field(default=1000)
     app_env: Literal["dev", "test", "prod"] = Field(default="dev")

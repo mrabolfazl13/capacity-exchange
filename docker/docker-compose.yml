@@ -57,7 +57,7 @@ services:
       CELERY_MODE: celery
       APP_ENV: ${APP_ENV:-dev}
       SECRET_KEY: ${SECR…e-me}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,tauri://localhost}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost}
       WEBHOOK_SECRET: ${WEBH…ret}
     ports:
       - "${BACKEND_HOST_PORT:-8000}:8000"

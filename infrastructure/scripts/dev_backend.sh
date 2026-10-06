@@ -8,7 +8,7 @@ cd "$(dirname "$0")/../.."
 export DATABASE_URL="${DATA…city}"
 export CELERY_MODE="${CELERY_MODE:-local}"
 export APP_ENV="${APP_ENV:-dev}"
-export CORS_ORIGINS="${CORS_ORS:-http://localhost:5173,tauri://localhost}"
+export CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost}"
 
 cd backend
 echo "[backend] uvicorn app.main:app on http://127.0.0.1:8000 (Ctrl+C to stop)"
