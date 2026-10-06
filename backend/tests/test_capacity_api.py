@@ -108,6 +108,21 @@ async def test_resource_can_be_created_with_nested_definitions(client):
     assert listed.json()["total"] == 1
 
 
+async def test_listing_capacities_carries_each_resource_definitions(client):
+    """The list route serialises definitions, so it must load them in the query.
+
+    A lazily-loaded relationship raises MissingGreenlet inside an async session while Pydantic
+    reads the row, which surfaces as a 500 rather than a wrong payload.
+    """
+    tokens = await make_provider(client, "prov.listing@example.test")
+    made = await make_resource(client, tokens, name="Listed Room", definitions=[
+        {"name": "Bay", "unit_label": "bay", "min_quantity": 1, "max_quantity": 4}])
+    resp = await client.get("/capacities", headers=auth(tokens))
+    assert resp.status_code == 200, resp.text
+    item = next(row for row in resp.json()["items"] if row["id"] == made["id"])
+    assert [d["max_quantity"] for d in item["definitions"]] == [4]
+
+
 async def test_availability_day_plan_reports_planned_and_free(client):
     tokens = await make_provider(client, "prov.plan@example.test")
     resource = await make_resource(client, tokens, name="Plan Room")
