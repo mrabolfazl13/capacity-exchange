@@ -372,7 +372,8 @@ Query params for `GET /offers`: `q` (full-text), `category_id`, `city`, `country
 Seeder: `backend/scripts/seed.py --reset`. Demo password for ALL seeded accounts:
 `Demo1234!` (dev only). Orgs (5): `northway-logistics`, `cityspace-rooms`,
 `precision-fab`, `freshbite-kitchens`, `transitline-fleet` — emails
-`owner@<slug>.test` (org_admin+provider), staff `staff@<slug>.test`, 50 customers
+`owner@<slug>.test` (org_admin+provider), staff `staff@<slug>.test` (manager) and
+`staff2@<slug>.test` (staff), 50 customers
 `customer01..50@example.test`, platform admin `admin@capacityexchange.test`,
 support `support@capacityexchange.test`. ≥50 resources / 100 published offers across
 all 8+ categories, recurring + one-off availability incl. closed overrides, 100
