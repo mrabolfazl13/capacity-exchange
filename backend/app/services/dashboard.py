@@ -48,11 +48,6 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def default_window(now: datetime | None = None) -> tuple[datetime, datetime]:
-    """The trailing window a dashboard shows when the caller names no dates."""
-    end = now or utcnow()
-    return end - timedelta(days=DEFAULT_WINDOW_DAYS), end
-
 
 def _hours(start: datetime, end: datetime) -> float:
     return max(0.0, (end - start).total_seconds() / 3600.0)

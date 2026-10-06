@@ -6,13 +6,13 @@ builders so a dashboard card and the matching detail view can never render diffe
 """
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.api.v1.deps import ActorDep, booking_payload, order_payload, parse_window
+from app.api.v1.deps import ActorDep, booking_payload, order_payload, resolve_window
 from app.core.deps import SessionDep
-from app.core.errors import OwnershipRequired, ValidationFailed
+from app.core.errors import OwnershipRequired
 from app.schemas.dashboard import (
     AdminDashboard,
     CustomerDashboard,
@@ -24,15 +24,6 @@ from app.services import dashboard as svc
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
-def _window(date_from: str | None, date_to: str | None) -> tuple[Any, Any]:
-    """`?from&to` are a pair or absent; absent means the trailing window (§8)."""
-    if bool(date_from) != bool(date_to):
-        raise ValidationFailed("`from` and `to` must be provided together")
-    if not date_from:
-        return svc.default_window()
-    return parse_window(date_from, date_to, max_days=svc.MAX_WINDOW_DAYS)
-
-
 @router.get("/provider")
 async def provider_dashboard(session: SessionDep, actor: ActorDep,
                              date_from: Annotated[str | None, Query(alias="from")] = None,
@@ -40,7 +31,8 @@ async def provider_dashboard(session: SessionDep, actor: ActorDep,
     org_id = actor.require_org(actor.active_org_id)
     if not actor.can_manage_org(org_id):
         raise OwnershipRequired("You do not manage this organization")
-    start, end = _window(date_from, date_to)
+    start, end = resolve_window(date_from, date_to, max_days=svc.MAX_WINDOW_DAYS,
+                                default_days=svc.DEFAULT_WINDOW_DAYS)
     rows = await svc.provider_dashboard(session, org_id=org_id, start=start, end=end)
     out = ProviderDashboard.model_validate(
         {k: v for k, v in rows.items() if k not in ("upcoming_bookings", "top_offers")}

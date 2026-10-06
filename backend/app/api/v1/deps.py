@@ -137,6 +137,17 @@ def parse_window(date_from: str, date_to: str, *, max_days: int) -> tuple[dateti
     return start, end
 
 
+def resolve_window(date_from: str | None, date_to: str | None, *,
+                   max_days: int, default_days: int) -> tuple[datetime, datetime]:
+    """`?from&to` are a pair or absent; absent means the trailing window (§8)."""
+    if bool(date_from) != bool(date_to):
+        raise ValidationFailed("`from` and `to` must be provided together")
+    if not date_from:
+        end = datetime.now(timezone.utc)
+        return end - timedelta(days=default_days), end
+    return parse_window(date_from, date_to, max_days=max_days)
+
+
 async def idempotent_write(
     session: AsyncSession,
     request: Request,
