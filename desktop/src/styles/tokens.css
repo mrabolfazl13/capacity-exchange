@@ -1,0 +1,62 @@
+/* Design tokens — hand-rolled system (no Tailwind). Layer 1: primitives. */
+:root {
+  /* brand */
+  --cx-hue: 222;
+  --color-primary: hsl(var(--cx-hue) 72% 44%);
+  --color-primary-hover: hsl(var(--cx-hue) 72% 38%);
+  --color-primary-soft: hsl(var(--cx-hue) 80% 95%);
+  --color-primary-contrast: #ffffff;
+
+  --color-success: hsl(152 58% 36%);
+  --color-success-soft: hsl(150 60% 95%);
+  --color-warning: hsl(38 92% 44%);
+  --color-warning-soft: hsl(45 95% 93%);
+  --color-danger: hsl(0 68% 48%);
+  --color-danger-soft: hsl(0 75% 96%);
+  --color-info: hsl(200 78% 42%);
+  --color-info-soft: hsl(200 80% 95%);
+
+  /* neutrals */
+  --color-bg: hsl(220 26% 98%);
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-border: hsl(220 16% 86%);
+  --color-border-strong: hsl(220 14% 70%);
+  --color-text: hsl(222 34% 16%);
+  --color-text-muted: hsl(222 14% 44%);
+  --color-text-faint: hsl(222 10% 60%);
+
+  /* spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* radii / shadows */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 1px 2px hsl(222 30% 20% / 0.06);
+  --shadow-md: 0 4px 16px hsl(222 30% 20% / 0.10);
+  --shadow-lg: 0 12px 40px hsl(222 30% 20% / 0.16);
+
+  /* type */
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.855rem;
+  --text-base: 1rem;
+  --text-lg: 1.15rem;
+  --text-xl: 1.4rem;
+  --text-2xl: 1.8rem;
+
+  --sidebar-w: 232px;
+}
+
+@media (max-width: 1120px) {
+  :root { --sidebar-w: 192px; }
+}
