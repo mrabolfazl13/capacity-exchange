@@ -1,6 +1,7 @@
 // Pure booking-domain helpers (state machine §5.5 + cancellation policy §5.6).
 // Kept UI-free so they are directly unit-testable.
 
+import type { MessageKey } from '@/i18n/index';
 import type {
   Booking,
   BookingStatus,
@@ -135,10 +136,16 @@ export function validateHoldRequest(
   return errors;
 }
 
-/** Board column layout for the provider bookings board. */
-export const PROVIDER_BOARD_COLUMNS: { title: string; statuses: BookingStatus[] }[] = [
-  { title: 'Holds', statuses: ['hold', 'draft'] },
-  { title: 'Confirmed', statuses: ['confirmed'] },
-  { title: 'In progress', statuses: ['in_progress'] },
-  { title: 'Done', statuses: ['completed', 'cancelled', 'expired', 'disputed'] },
+/**
+ * Board column layout for the provider bookings board. Titles are catalog keys so
+ * the board labels itself in the reader's language.
+ */
+export const PROVIDER_BOARD_COLUMNS: {
+  title: MessageKey;
+  statuses: BookingStatus[];
+}[] = [
+  { title: 'prov.colHolds', statuses: ['hold', 'draft'] },
+  { title: 'prov.colConfirmed', statuses: ['confirmed'] },
+  { title: 'prov.colInProgress', statuses: ['in_progress'] },
+  { title: 'prov.colDone', statuses: ['completed', 'cancelled', 'expired', 'disputed'] },
 ];
