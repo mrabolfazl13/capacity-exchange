@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "The main window's permission set. The client talks to the backend over HTTP and calls no native command, so it needs the core defaults and nothing more.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
