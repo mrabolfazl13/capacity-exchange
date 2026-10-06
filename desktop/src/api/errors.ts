@@ -72,9 +72,24 @@ export const HOLD_CONFLICT_CODES = [
   'duplicate_request',
 ] as const;
 
-export function holdConflictCode(err: unknown): string | null {
+export type HoldConflictCode = (typeof HOLD_CONFLICT_CODES)[number];
+
+/** Each code has its own copy; the flow renders the key rather than guessing at one. */
+const HOLD_ERROR_KEYS: Record<HoldConflictCode, MessageKey> = {
+  no_availability: 'book.err.no_availability',
+  capacity_exceeded: 'book.err.capacity_exceeded',
+  hold_expired: 'book.err.hold_expired',
+  duplicate_request: 'book.err.duplicate_request',
+};
+
+export function holdConflictCode(err: unknown): HoldConflictCode | null {
   if (err instanceof ApiError && err.status === 409 && (HOLD_CONFLICT_CODES as readonly string[]).includes(err.code)) {
-    return err.code;
+    return err.code as HoldConflictCode;
   }
   return null;
+}
+
+export function holdConflictKey(err: unknown): MessageKey | null {
+  const code = holdConflictCode(err);
+  return code === null ? null : HOLD_ERROR_KEYS[code];
 }

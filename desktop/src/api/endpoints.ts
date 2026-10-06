@@ -4,6 +4,8 @@
 
 import { api, uuidv4 } from '@/api/client';
 import type {
+  AdminDisputeRow,
+  AdminProvider,
   AdminDashboard,
   AppNotification,
   AuditLog,
@@ -29,18 +31,21 @@ import type {
   Offer,
   OfferInput,
   OfferSearchParams,
+  OfferStatus,
   Order,
   Organization,
   OrgStaffRole,
   Payment,
   PlatformAnalytics,
   Promotion,
+  PromotionRedemption,
   ProviderDashboard,
   RecurringAvailability,
   Review,
   ReviewInput,
   RoleKey,
   TokenPair,
+  UserRole,
   User,
   UUID,
 } from '@/types/api';
@@ -145,19 +150,21 @@ export interface CapacityResourceInput {
   description?: string | null;
   capacity_mode: 'scheduled' | 'quantity' | 'open_ended';
   address: {
-    line1?: string;
-    line2?: string;
-    city?: string;
-    state?: string;
-    postal_code?: string;
-    country?: string;
+    line1?: string | null;
+    line2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postal_code?: string | null;
+    country?: string | null;
   };
   lat?: number | null;
   lon?: number | null;
   timezone?: string;
   attributes?: Record<string, unknown>;
-  photos?: { url: string; caption?: string; sort_order?: number }[];
-  documents?: { name: string; url: string; kind?: string }[];
+  photos?: { url: string; caption?: string | null; sort_order?: number }[];
+  documents?: { name: string; url: string; kind?: string | null }[];
+  /** The resource route takes its units inline, so the wizard publishes in one call. */
+  definitions?: DefinitionInput[];
 }
 
 export interface DefinitionInput {
@@ -172,6 +179,7 @@ export interface DefinitionInput {
 }
 
 export interface RecurringAvailabilityInput {
+  definition_id?: UUID | null;
   dow: number;
   start_time: string;
   end_time: string;
@@ -295,8 +303,14 @@ export const offerApi = {
   close(id: UUID) {
     return api.post<Offer>(`/offers/${id}/close`);
   },
-  listMine(limit = 100, offset = 0) {
-    return api.get<ListEnvelope<Offer>>('/offers', { mine: true, limit, offset });
+  /** `status` narrows the owner's list; closed listings are only ever visible here (§8). */
+  listMine(limit = 100, offset = 0, status?: OfferStatus) {
+    return api.get<ListEnvelope<Offer>>('/offers', {
+      mine: true,
+      status: status || undefined,
+      limit,
+      offset,
+    });
   },
   reviews(offerId: UUID, limit = 20, offset = 0) {
     return api.get<ListEnvelope<Review>>(`/offers/${offerId}/reviews`, {
@@ -336,18 +350,16 @@ export const demandApi = {
   patch(id: UUID, patch: Partial<DemandInput>) {
     return api.patch<Demand>(`/demands/${id}`, patch);
   },
-  matches(demandId: UUID) {
-    return api.get<ListEnvelope<Match>>(`/demands/${demandId}/matches`);
-  },
-  acceptMatch(matchId: UUID) {
-    return api.post<Match>(`/matches/${matchId}/accept`);
-  },
-  rejectMatch(matchId: UUID) {
-    return api.post<Match>(`/matches/${matchId}/reject`);
+  /** Live re-scoring of the demand against offers the capacity engine would accept. */
+  matches(demandId: UUID, limit = 20, offset = 0) {
+    return api.get<ListEnvelope<Match>>(`/demands/${demandId}/matches`, { limit, offset });
   },
 };
 
-/** Provider-side match inbox: proposals across every demand that touched our offers. */
+/**
+ * Provider-side match inbox. Accepting a proposal creates the draft booking the customer
+ * then confirms, so the action belongs to the provider — not to the demand's owner.
+ */
 export const matchApi = {
   list(status?: string, limit = 50, offset = 0) {
     return api.get<ListEnvelope<Match>>('/matches', {
@@ -393,8 +405,11 @@ export const bookingApi = {
   get(id: UUID) {
     return api.get<Booking>(`/bookings/${id}`);
   },
-  timeline(id: UUID) {
-    return api.get<ListEnvelope<BookingStatusEvent>>(`/bookings/${id}/timeline`);
+  timeline(id: UUID, limit = 20, offset = 0) {
+    return api.get<ListEnvelope<BookingStatusEvent>>(`/bookings/${id}/timeline`, {
+      limit,
+      offset,
+    });
   },
   confirm(id: UUID) {
     return api.post<Booking>(`/bookings/${id}/confirm`);
@@ -468,10 +483,18 @@ export const reviewApi = {
     return api.post<Review>('/reviews', input);
   },
   reply(reviewId: UUID, reply: string) {
-    return api.patch<Review>(`/reviews/${reviewId}/reply`, { provider_reply: reply });
+    return api.post<Review>(`/reviews/${reviewId}/reply`, { provider_reply: reply });
   },
+  /** `provider=true` is what the caller's organization received (§8). */
   forOrg(limit = 50, offset = 0) {
-    return api.get<ListEnvelope<Review>>('/reviews', { org: true, limit, offset });
+    return api.get<ListEnvelope<Review>>('/reviews', { provider: true, limit, offset });
+  },
+  /** What the caller wrote, for the customer-side "my reviews" list. */
+  mine(limit = 50, offset = 0) {
+    return api.get<ListEnvelope<Review>>('/reviews', { limit, offset });
+  },
+  forBooking(bookingId: UUID) {
+    return api.get<ListEnvelope<Review>>('/reviews', { booking_id: bookingId });
   },
   get(id: UUID) {
     return api.get<Review>(`/reviews/${id}`);
@@ -511,8 +534,13 @@ export const notificationApi = {
 // ---------- conversations ----------
 
 export const conversationApi = {
-  list(limit = 30, offset = 0) {
-    return api.get<ListEnvelope<Conversation>>('/conversations', { limit, offset });
+  list(limit = 30, offset = 0, opts: { provider?: boolean; status?: string } = {}) {
+    return api.get<ListEnvelope<Conversation>>('/conversations', {
+      provider: opts.provider || undefined,
+      status: opts.status || undefined,
+      limit,
+      offset,
+    });
   },
   create(payload: { kind?: string; ref_id?: UUID | null; org_id?: UUID | null; initial_body?: string }) {
     return api.post<Conversation>('/conversations', payload);
@@ -534,8 +562,15 @@ export const conversationApi = {
 // ---------- disputes ----------
 
 export const disputeApi = {
-  list(limit = 30, offset = 0) {
-    return api.get<ListEnvelope<Dispute>>('/disputes', { limit, offset });
+  /** No scope flag: the route itself narrows to the caller (queue / org / own bookings). */
+  list(opts: { provider?: boolean; status?: string; kind?: string } = {}, limit = 30, offset = 0) {
+    return api.get<ListEnvelope<Dispute>>('/disputes', {
+      provider: opts.provider || undefined,
+      status: opts.status || undefined,
+      kind: opts.kind || undefined,
+      limit,
+      offset,
+    });
   },
   create(payload: { booking_id: UUID; kind: string; description: string }) {
     return api.post<Dispute>('/disputes', payload);
@@ -543,10 +578,12 @@ export const disputeApi = {
   get(id: UUID) {
     return api.get<Dispute>(`/disputes/${id}`);
   },
-  resolve(id: UUID, status: DisputeStatus, note: string) {
+  /** `refund_cents` only steers resolved_partial; a full refund takes the order's balance. */
+  resolve(id: UUID, status: DisputeStatus, note: string, refundCents?: number | null) {
     return api.post<Dispute>(`/disputes/${id}/resolve`, {
       status,
       resolution_note: note,
+      refund_cents: refundCents ?? null,
     });
   },
 };
@@ -584,37 +621,77 @@ export interface OrgStaffRow {
   user_id: UUID;
   role: OrgStaffRole;
   status: 'active' | 'invited' | 'revoked';
-  user?: User | null;
+  created_at: string;
+  /** The list route joins the account; the invite response is the bare membership row. */
+  email?: string | null;
+  full_name?: string | null;
 }
 
 export const adminApi = {
-  users(q?: string, limit = 20, offset = 0) {
-    return api.get<ListEnvelope<AdminUserRow>>('/admin/users', { q, limit, offset });
+  users(
+    opts: { q?: string; role?: string; active?: boolean } = {},
+    limit = 20,
+    offset = 0,
+  ) {
+    return api.get<ListEnvelope<AdminUserRow>>('/admin/users', {
+      q: opts.q || undefined,
+      role: opts.role || undefined,
+      active: opts.active,
+      limit,
+      offset,
+    });
   },
-  providers(q?: string, limit = 20, offset = 0) {
-    return api.get<ListEnvelope<import('../types/api').AdminProvider>>(
+  providers(
+    opts: { q?: string; status?: string; country?: string } = {},
+    limit = 20,
+    offset = 0,
+  ) {
+    return api.get<ListEnvelope<AdminProvider>>(
       '/admin/providers',
-      { q, limit, offset },
+      { q: opts.q || undefined, status: opts.status || undefined, country: opts.country || undefined, limit, offset },
     );
   },
-  disputes(status?: string, limit = 20, offset = 0) {
-    return api.get<ListEnvelope<Dispute>>('/admin/disputes', { status, limit, offset });
+  disputes(
+    opts: { status?: string; kind?: string; oldestFirst?: boolean } = {},
+    limit = 20,
+    offset = 0,
+  ) {
+    return api.get<ListEnvelope<AdminDisputeRow>>('/admin/disputes', {
+      status: opts.status || undefined,
+      kind: opts.kind || undefined,
+      oldest_first: opts.oldestFirst || undefined,
+      limit,
+      offset,
+    });
   },
-  auditLogs(entityType?: string, limit = 30, offset = 0) {
+  auditLogs(
+    opts: { action?: string; entityType?: string; from?: string; to?: string } = {},
+    limit = 30,
+    offset = 0,
+  ) {
     return api.get<ListEnvelope<AuditLog>>('/admin/audit-logs', {
-      entity_type: entityType,
+      action: opts.action || undefined,
+      entity_type: opts.entityType || undefined,
+      from: opts.from || undefined,
+      to: opts.to || undefined,
       limit,
       offset,
     });
   },
   categories() {
-    return api.get<ListEnvelope<CapacityCategory>>('/admin/categories');
+    return api.get<ListEnvelope<CapacityCategory>>('/admin/categories', { limit: 100 });
   },
   patchCategory(id: UUID, patch: { label?: string; is_active?: boolean }) {
     return api.patch<CapacityCategory>(`/admin/categories/${id}`, patch);
   },
-  promotions(limit = 50, offset = 0) {
-    return api.get<ListEnvelope<Promotion>>('/admin/promotions', { limit, offset });
+  promotions(opts: { q?: string; status?: string; kind?: string } = {}, limit = 50, offset = 0) {
+    return api.get<ListEnvelope<Promotion>>('/admin/promotions', {
+      q: opts.q || undefined,
+      status: opts.status || undefined,
+      kind: opts.kind || undefined,
+      limit,
+      offset,
+    });
   },
   createPromotion(payload: Record<string, unknown>) {
     return api.post<Promotion>('/admin/promotions', payload);
@@ -623,18 +700,17 @@ export const adminApi = {
     return api.patch<Promotion>(`/admin/promotions/${id}`, patch);
   },
   promotionRedemptions(id: UUID, limit = 50, offset = 0) {
-    return api.get<ListEnvelope<Record<string, unknown>>>(
+    return api.get<ListEnvelope<PromotionRedemption>>(
       `/admin/promotions/${id}/redemptions`,
       { limit, offset },
     );
   },
-  grantRole(userId: UUID, role: RoleKey) {
-    return api.post<{ ok: boolean; roles: RoleKey[] }>(`/admin/users/${userId}/roles`, {
-      role,
-    });
+  /** A grant answers with the membership row it wrote (§5.1); a revocation answers 204. */
+  grantRole(userId: UUID, role: Exclude<RoleKey, 'customer'>) {
+    return api.post<UserRole>(`/admin/users/${userId}/roles`, { role });
   },
-  revokeRole(userId: UUID, role: RoleKey) {
-    return api.del<{ ok: boolean; roles: RoleKey[] }>(`/admin/users/${userId}/roles/${role}`);
+  revokeRole(userId: UUID, role: Exclude<RoleKey, 'customer'>) {
+    return api.del<void>(`/admin/users/${userId}/roles/${role}`);
   },
   analytics(from?: string, to?: string) {
     return api.get<PlatformAnalytics>('/admin/analytics', { from, to });
