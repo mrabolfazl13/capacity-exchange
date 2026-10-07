@@ -11,5 +11,13 @@ dependencies = [
     "pydantic>=2.13",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3",
+]
+
 [tool.setuptools.packages.find]
 include = ["capacity_ai*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
