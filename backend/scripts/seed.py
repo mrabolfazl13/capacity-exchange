@@ -354,14 +354,20 @@ async def _upsert(session: AsyncSession, model, *, stable: dict, values: dict,
 
     The stable columns are part of the row, not only the lookup: a natural key like `tenants.key`
     has nowhere else to come from on the insert.
+
+    A seeded date computed from "now" moves when the seed re-runs on another day, which leaves the
+    deterministic id pointing at a row the stable lookup cannot find. Refresh that row instead of
+    inserting the same primary key a second time — re-running the seed stays idempotent.
     """
     row = await _one(session, model, **stable)
+    if row is None:
+        row = await session.get(model, seed_id)
     if row is None:
         row = model(id=seed_id, **{**stable, **values})
         session.add(row)
         created = True
     else:
-        for key, value in values.items():
+        for key, value in {**stable, **values}.items():
             setattr(row, key, value)
         created = False
     await session.flush()
