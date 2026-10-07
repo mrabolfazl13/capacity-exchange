@@ -17,6 +17,8 @@ import type {
   CapacityDefinition,
   CapacityResource,
   Conversation,
+  CopilotBriefing,
+  CurrencyCode,
   CustomerDashboard,
   Demand,
   DemandInput,
@@ -26,6 +28,7 @@ import type {
   Fulfillment,
   HoldRequest,
   ListEnvelope,
+  ListingDraft,
   Match,
   Message,
   Offer,
@@ -35,8 +38,10 @@ import type {
   Order,
   Organization,
   OrgStaffRole,
+  ParsedQuery,
   Payment,
   PlatformAnalytics,
+  PriceSuggestion,
   Promotion,
   PromotionRedemption,
   ProviderDashboard,
@@ -45,6 +50,7 @@ import type {
   ReviewInput,
   RoleKey,
   TokenPair,
+  UtilizationInsights,
   UserRole,
   User,
   UUID,
@@ -714,5 +720,48 @@ export const adminApi = {
   },
   analytics(from?: string, to?: string) {
     return api.get<PlatformAnalytics>('/admin/analytics', { from, to });
+  },
+};
+
+// ---------- assistant (§8) ----------
+
+/**
+ * The `/ai/*` surface is advisory and read-only: no call here writes a row, and none of
+ * them is on the booking path. Each one answers from data this platform already stores,
+ * so a failure shows an empty suggestion rather than a broken feature.
+ */
+export interface PriceSuggestInput {
+  offer_id?: UUID;
+  category_key?: string;
+  city?: string;
+  country?: string;
+  capacity_mode?: 'scheduled' | 'quantity' | 'open_ended';
+  unit_label?: string;
+  currency?: CurrencyCode;
+}
+
+export const aiApi = {
+  parseSearch(text: string) {
+    return api.post<ParsedQuery>('/ai/parse-search', { text });
+  },
+  draftListing(rawText: string, opts: { category_key?: string; currency?: CurrencyCode } = {}) {
+    return api.post<ListingDraft>('/ai/listing-draft', {
+      raw_text: rawText,
+      category_key: opts.category_key || undefined,
+      currency: opts.currency ?? 'USD',
+    });
+  },
+  priceSuggest(input: PriceSuggestInput) {
+    return api.post<PriceSuggestion>('/ai/price-suggest', input);
+  },
+  utilizationInsights(from?: string, to?: string, orgId?: UUID) {
+    return api.get<UtilizationInsights>('/ai/utilization-insights', {
+      from,
+      to,
+      org_id: orgId,
+    });
+  },
+  copilot(orgId?: UUID) {
+    return api.get<CopilotBriefing>('/ai/copilot', { org_id: orgId });
   },
 };

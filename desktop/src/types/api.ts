@@ -795,3 +795,143 @@ export interface PlatformAnalytics {
   top_categories: TopCategoryRow[];
   daily: AnalyticsDay[];
 }
+
+// ---------- assistant (§8) ----------
+
+/**
+ * POST /ai/parse-search — prose turned into the filters GET /offers already accepts.
+ * `unparsed_fragments` is the assistant admitting what it could not read, so the UI can
+ * show the words it missed instead of silently searching without them.
+ */
+export interface ParsedQuery {
+  raw_text: string;
+  category_key: string | null;
+  category_id: UUID | null;
+  category_confidence: number;
+  city: string | null;
+  country: string | null;
+  quantity: number | null;
+  unit: string | null;
+  window_start: ISODateTime | null;
+  window_end: ISODateTime | null;
+  budget_min_cents: number | null;
+  budget_max_cents: number | null;
+  currency: CurrencyCode | null;
+  constraints: string[];
+  confidence: number;
+  unparsed_fragments: string[];
+}
+
+/** One recurring availability row suggested from the provider's own wording (§5.2). */
+export interface DraftAvailability {
+  dow: number; // 0=Monday .. 6=Sunday
+  start_time: ISOTime;
+  end_time: ISOTime;
+  quantity: number;
+  source_phrase: string | null;
+}
+
+/** A box the draft could not fill: still the provider's decision, never a guess. */
+export type ListingDraftGap =
+  | 'category_key'
+  | 'availability'
+  | 'unit_amount_cents'
+  | 'location'
+  | 'description';
+
+export interface ListingDraft {
+  title: string;
+  description: string;
+  category_key: string | null;
+  category_id: UUID | null;
+  category_confidence: number;
+  attributes: Record<string, string | number | boolean>;
+  suggested_availabilities: DraftAvailability[];
+  missing_fields: ListingDraftGap[];
+  unit_label: string | null;
+  suggested_unit_amount_cents: number | null;
+  currency: CurrencyCode | null;
+}
+
+/**
+ * POST /ai/price-suggest — a band from published comparables. Advisory: it never
+ * writes a price, and `method` says whether it is a market band or a cold-start floor.
+ */
+export interface PriceSuggestion {
+  suggested_min_cents: number;
+  suggested_max_cents: number;
+  currency: CurrencyCode;
+  rationale: string;
+  confidence: number;
+  method: 'comparables' | 'cold_start_floor';
+  comparable_count: number;
+}
+
+export interface DefinitionUtilization {
+  definition_id: UUID;
+  name: string;
+  category_key: string | null;
+  period_start: ISODateTime;
+  period_end: ISODateTime;
+  utilization_pct: number;
+  booked_slots: number;
+  total_slots: number;
+}
+
+/**
+ * A weekday/hour block that was published and stayed unbooked. `occurrences` counts the
+ * least-observed hour in the block, so it is evidence, not the length of the window.
+ */
+export interface IdleWindowRow {
+  definition_id: UUID;
+  dow: number;
+  start_time: ISOTime;
+  end_time: ISOTime;
+  occurrences: number;
+  note: string;
+}
+
+export interface DemandCountRow {
+  category_key: string;
+  open_demands: number;
+  trend_note: string;
+}
+
+export interface UtilizationInsights {
+  items: DefinitionUtilization[];
+  total: number;
+  idle_windows: IdleWindowRow[];
+  demand_counts: DemandCountRow[];
+  truncated: boolean;
+  window: { from: ISODateTime; to: ISODateTime };
+}
+
+export interface AtRiskHold {
+  booking_id: UUID;
+  offer_title: string;
+  hold_expires_at: ISODateTime;
+  window_start: ISODateTime;
+}
+
+export interface IdleCapacityRow {
+  definition_id: UUID;
+  name: string;
+  utilization_pct: number;
+  capacity_unit_hours: number;
+  weeks_observed: number;
+}
+
+/**
+ * GET /ai/copilot — the same figures as the provider dashboard, in one paragraph.
+ * `revenue_last_30d_cents` is cash-dated (orders.placed_at) while the dashboard's
+ * revenue is service-dated; each screen labels which axis it is on (§8).
+ */
+export interface CopilotBriefing {
+  summary_text: string;
+  next_7d_bookings: number;
+  at_risk_holds: AtRiskHold[];
+  top_idle_capacity: IdleCapacityRow[];
+  revenue_last_30d_cents: number;
+  currency: CurrencyCode;
+  truncated: boolean;
+}
