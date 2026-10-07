@@ -140,6 +140,9 @@ input, select, textarea { font: inherit; color: inherit; }
 .card-hover { transition: box-shadow 120ms ease, transform 120ms ease; }
 .card-hover:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
 
+/* The assistant's prose briefing: readable body copy, not a table cell. */
+.ai-summary { margin: 0; font-size: var(--text-sm); line-height: 1.65; }
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -174,7 +177,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .field { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-3); }
 .field label { font-size: var(--text-sm); font-weight: 600; }
 .field .hint { color: var(--color-text-muted); font-size: var(--text-xs); }
-.field .error-text { color: var(--color-danger); font-size: var(--text-xs); }
+.error-text { color: var(--color-danger); font-size: var(--text-xs); }
 .input, .select, .textarea {
   width: 100%;
   padding: 8px 10px;

@@ -427,13 +427,6 @@ const en = {
   'wizard.previewSummary': 'Review before publishing',
   'wizard.publish': 'Publish offer',
   'wizard.published': 'Offer published to the marketplace.',
-  'wizard.dow.0': 'Monday',
-  'wizard.dow.1': 'Tuesday',
-  'wizard.dow.2': 'Wednesday',
-  'wizard.dow.3': 'Thursday',
-  'wizard.dow.4': 'Friday',
-  'wizard.dow.5': 'Saturday',
-  'wizard.dow.6': 'Sunday',
   'wizard.units': 'Sellable units',
   'wizard.addUnit': 'Add unit',
   'wizard.offerTitle': 'Listing title',
@@ -557,6 +550,59 @@ const en = {
 
   // Routing
   'routes.notFoundHint': 'That screen does not exist. Pick a destination from the menu.',
+
+  // Weekday names, shared by the wizard's rules and the assistant's idle patterns.
+  'common.dow.0': 'Monday',
+  'common.dow.1': 'Tuesday',
+  'common.dow.2': 'Wednesday',
+  'common.dow.3': 'Thursday',
+  'common.dow.4': 'Friday',
+  'common.dow.5': 'Saturday',
+  'common.dow.6': 'Sunday',
+
+  // Assistant — the /ai/* surface (CONTRACTS §8). Every panel says what it is: advice.
+  'ai.advisory': 'Suggestion',
+  'ai.truncated': 'More rows fit the window than this panel shows.',
+  'ai.copilot.title': 'Assistant briefing',
+  'ai.copilot.collected': 'Collected in the last 30 days: {amount}',
+  'ai.copilot.atRisk': 'Holds about to expire',
+  'ai.quiet.title': 'Published hours that stayed empty',
+  'ai.quiet.hint':
+    'A weekday and hour you offered at least twice in this window, and no one booked on any of those days.',
+  'ai.quiet.none': 'No empty-hour pattern strong enough to act on yet.',
+  'ai.quiet.when': 'Weekday and hours',
+  'ai.quiet.occurrences': 'Times offered',
+  'ai.search.label': 'Search in your own words',
+  'ai.search.prose': 'Describe what you need',
+  'ai.search.prosePlaceholder': 'a 12-person room in Berlin next Friday afternoon under 200 EUR',
+  'ai.search.read': 'Read my description',
+  'ai.search.hint':
+    'Fills the filters below and runs the same search. Nothing here changes your account.',
+  'ai.search.applied': 'Filters filled from your description.',
+  'ai.search.leftover': 'Could not put these into a filter, kept as keyword text: {fragments}.',
+  'ai.search.nothingRead':
+    'Nothing in that sentence matched a filter — type a keyword or use the boxes below.',
+  'ai.search.failed': 'The assistant could not read that just now. The filters work without it.',
+  'ai.draft.label': 'Or describe the capacity and let the assistant start the form',
+  'ai.draft.placeholder': '12-seat meeting room downtown, weekdays 9 to 18, 60 per hour',
+  'ai.draft.run': 'Draft the listing',
+  'ai.draft.hint':
+    'Fills empty boxes on this form only. Nothing publishes until the last step.',
+  'ai.draft.applied': 'Draft merged into the empty boxes — check every one before continuing.',
+  'ai.draft.failed': 'The assistant could not draft from that text. Fill the boxes yourself.',
+  'ai.draft.missing': 'Still your decision: {fields}.',
+  'ai.gap.category_key': 'the category',
+  'ai.gap.availability': 'which days and hours you open',
+  'ai.gap.unit_amount_cents': 'the price',
+  'ai.gap.location': 'the address',
+  'ai.gap.description': 'the description',
+  'ai.price.title': 'Market band',
+  'ai.price.run': 'Suggest a price',
+  'ai.price.hint':
+    'Reads published listings in your city, then your country, then the category. The price you publish stays yours.',
+  'ai.price.comparables': 'Based on {count} published listings.',
+  'ai.price.coldStart': 'No comparable listings yet — this is a floor, not a market band.',
+  'ai.price.failed': 'No band available right now. Enter your own price.',
 
   // Errors (§2 taxonomy mapping)
   'err.network_error': 'Cannot reach the server. Check that the backend is running and try again.',
