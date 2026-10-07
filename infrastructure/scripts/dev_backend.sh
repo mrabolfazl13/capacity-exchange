@@ -11,5 +11,7 @@ export APP_ENV="${APP_ENV:-dev}"
 export CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost}"
 
 cd backend
+# `/ai/*` imports capacity_ai from the sibling ai/ package (local, not on PyPI).
+export PYTHONPATH="$REPO_ROOT/ai${PYTHONPATH:+:$PYTHONPATH}"
 echo "[backend] uvicorn app.main:app on http://127.0.0.1:8000 (Ctrl+C to stop)"
 exec python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload

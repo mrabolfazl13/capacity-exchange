@@ -4,6 +4,7 @@
 #   * app package at /app/backend (uvicorn import: app.main:app)
 #   * Celery app module:      app.workers.celery_app   (CONTRACTS §10)
 #   * deps file:              backend/requirements.txt (psycopg3, alembic, celery)
+#   * AI package:             ai/capacity_ai  (on PYTHONPATH as /app/ai; no DB driver)
 #   * health endpoints:       /health /health/live /health/ready (CONTRACTS §1)
 FROM python:3.12-slim AS builder
 
@@ -37,8 +38,13 @@ COPY --chown=app:app backend/ ./
 COPY --chown=app:app docker/entrypoints/backend-entrypoint.sh /entrypoint.sh
 RUN chmod 755 /entrypoint.sh
 
+# `capacity_ai` (ai/) ships beside the backend and is imported by the /ai/* service
+# layer; it is a local package, not a PyPI dependency, so it is mounted and put on the
+# path rather than pip-installed.
+COPY --chown=app:app ai/capacity_ai/ /app/ai/capacity_ai/
+
 # Keep alembic/uvicorn importable as CLIs from the app package.
-ENV PYTHONPATH=/app/backend
+ENV PYTHONPATH=/app/backend:/app/ai
 
 USER app
 EXPOSE 8000

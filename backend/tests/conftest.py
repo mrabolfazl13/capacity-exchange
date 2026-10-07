@@ -21,6 +21,13 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+# `capacity_ai` is a sibling package, not a PyPI dependency: the backend imports it and
+# the Docker image mounts it, so the harness puts it on the path the same way instead of
+# requiring `pip install -e ai` before a fresh clone can run the suite.
+AI_ROOT = BACKEND_ROOT.parent / "ai"
+if str(AI_ROOT) not in sys.path:
+    sys.path.insert(0, str(AI_ROOT))
+
 from app.core.eventloop import use_selector_event_loop  # noqa: E402
 
 use_selector_event_loop()
