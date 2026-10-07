@@ -39,6 +39,13 @@ lowercase + unique index.
   full filtered count.
 - Errors: `{ "error": { "code": "<machine_code>", "message": "<human>", "details": {...}, "request_id": "<uuid>" } }`
 - Validation (422): code `validation_error`, `details.field_errors = [{field, message}]`.
+- **Read-your-write**: a write's transaction commits before its response leaves the handler.
+  A client that follows `POST` with `GET` on what it created must see it — no eventual
+  consistency window, no "created then not found". A transaction that cannot commit is
+  reported as the 5xx it is, never as a 201 the server then rolls back.
+- `409` is the status for `invalid_credentials`, not `401`: a client reads 401 as "your
+  session died", and a wrong password must not be confused with that. The unknown-account
+  and wrong-password answers are byte-identical in code and message (§4).
 
 ### Error code taxonomy
 
