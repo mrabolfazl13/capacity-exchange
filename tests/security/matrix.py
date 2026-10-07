@@ -57,18 +57,32 @@ class Actor:
     def h(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.access}"}
 
+    def _request(self, method: str, path: str, **kw: Any) -> httpx.Response:
+        # Callers add Idempotency-Key and similar per-request headers; the actor's own
+        # Authorization must survive that merge rather than be replaced by it.
+        headers = {**self.h(), **(kw.pop("headers", None) or {})}
+        return self.http.request(method, f"{self.base}{path}", headers=headers, **kw)
+
     def get(self, path: str, **kw: Any) -> httpx.Response:
-        return self.http.get(f"{self.base}{path}", headers=self.h(), **kw)
+        return self._request("GET", path, **kw)
 
     def post(self, path: str, **kw: Any) -> httpx.Response:
-        return self.http.post(f"{self.base}{path}", headers=self.h(), **kw)
+        return self._request("POST", path, **kw)
+
+    def patch(self, path: str, **kw: Any) -> httpx.Response:
+        return self._request("PATCH", path, **kw)
+
+    def delete(self, path: str, **kw: Any) -> httpx.Response:
+        return self._request("DELETE", path, **kw)
 
 
 def capacity_fixture(prov: Actor, base: str, tag: str) -> dict[str, str]:
     cats = prov.get("/catalog/categories").json()
     items = cats.get("items", cats)
     room = next((c for c in items if c.get("key") == "warehouse"), items[0])
-    start = (datetime.now(timezone.utc) + timedelta(days=4)).replace(minute=0,
+    # Inside the 09:00-18:00 rule the fixture publishes; anchored to the wall clock the
+    # window would fall outside it overnight and the checks would assert nothing.
+    start = (datetime.now(timezone.utc) + timedelta(days=4)).replace(hour=10, minute=0,
                                                                     second=0,
                                                                     microsecond=0)
     res = prov.post("/capacities", json={
@@ -99,7 +113,7 @@ def capacity_fixture(prov: Actor, base: str, tag: str) -> dict[str, str]:
             "window_start": iso(start), "window_end": iso(start + timedelta(hours=1))}
 
 
-def run(base: str) -> int:
+def run(base: str, per_min: int) -> int:
     tag = uuid.uuid4().hex[:8]
     with httpx.Client(timeout=45.0) as http:
         print("\n[A] authentication boundaries")
@@ -109,13 +123,12 @@ def run(base: str) -> int:
         record("garbage bearer token rejected", r.status_code == 401, str(r.status_code))
         r = http.post(f"{base}/auth/login",
                       json={"email": f"ghost.{tag}@sec.test", "password": PASSWORD})
-        record("unknown account -> 401 invalid_credentials",
-               r.status_code == 401 and (r.json().get("error") or {}).get("code")
-               in ("invalid_credentials", "unauthorized"), f"{r.status_code}")
-        r = http.post(f"{base}/auth/login",
-                      json={"email": f"ghost.{tag}@sec.test", "password": "wrong-password-1"})
-        record("no user enumeration (same shape for bad password)", r.status_code == 401,
-               str(r.status_code))
+        unknown = r
+        # §2 puts invalid_credentials at 409, not 401: a 401 is what a client reads as
+        # "your session died", and a wrong password must not be confused with that.
+        record("unknown account -> 409 invalid_credentials",
+               r.status_code == 409 and (r.json().get("error") or {}).get("code")
+               == "invalid_credentials", f"{r.status_code}")
 
         print("\n[B] actors")
         prov_a = Actor(http, base, tag, "prova", ["provider"],
@@ -127,6 +140,18 @@ def run(base: str) -> int:
         cust = Actor(http, base, tag, "cust", ["customer"], None)
         cap_a = capacity_fixture(prov_a, base, tag)
         record("fixtures created", bool(cap_a["offer_id"]))
+
+        # The real enumeration test: a live account with a wrong password must answer
+        # exactly like a address that does not exist, byte for byte in the envelope.
+        wrong = http.post(f"{base}/auth/login",
+                          json={"email": prov_a.email, "password": "wrong-password-1"})
+        same = (wrong.status_code == unknown.status_code
+                and wrong.json().get("error", {}).get("code")
+                == unknown.json().get("error", {}).get("code")
+                and wrong.json().get("error", {}).get("message")
+                == unknown.json().get("error", {}).get("message"))
+        record("no user enumeration (existing account answers identically)", same,
+               f"{wrong.status_code} vs {unknown.status_code}")
 
         print("\n[C] tenant isolation + ownership")
         r = prov_b.get(f"/capacities/{cap_a['resource_id']}")
@@ -245,16 +270,6 @@ def run(base: str) -> int:
                f"{r3.status_code}/{diff_body.status_code}")
 
         print("\n[G] rate limiting + info leakage")
-        codes = set()
-        for _ in range(90):
-            rr = http.post(f"{base}/auth/login",
-                           json={"email": f"nobody.{tag}@sec.test",
-                                 "password": "guess"},
-                           headers={"X-Forwarded-For": "203.0.113.7"})
-            codes.add(rr.status_code)
-            if 429 in codes:
-                break
-        record("auth endpoint rate-limits bursts", 429 in codes, f"codes={sorted(codes)}")
         err = http.get(f"{base}/bookings/00000000-0000-0000-0000-000000000000",
                        headers=cust.h())
         leak = any(tok in err.text.lower() for tok in
@@ -270,6 +285,29 @@ def run(base: str) -> int:
                not any(k in json.dumps(me).lower() for k in ("password_hash", '"hash"')),
                json.dumps(list(me))[:200])
 
+        print("\n[I] brute-force burst (last: it empties this client's bucket)")
+        # CONTRACTS §10 sets one bucket per client IP at RATE_LIMIT_PER_MIN, in-memory
+        # when Redis is absent, so a burst has to exceed that number to prove anything.
+        # X-Forwarded-For is deliberately not sent: trusting it would let a caller choose
+        # its own bucket and evade the limit.
+        codes: set[int] = set()
+        limited: Any = None
+        for _ in range(per_min + 15):
+            rr = http.post(f"{base}/auth/login",
+                           json={"email": f"nobody.{tag}@sec.test", "password": "guess"})
+            codes.add(rr.status_code)
+            if rr.status_code == 429:
+                limited = rr
+                break
+        record("burst past the configured limit is rate-limited", limited is not None,
+               f"codes={sorted(codes)} limit={per_min}")
+        if limited is not None:
+            err_body = limited.json().get("error", {})
+            record("429 carries the §2 code and retry_after_seconds",
+                   err_body.get("code") == "rate_limited"
+                   and int(err_body.get("details", {}).get("retry_after_seconds", 0)) > 0,
+                   json.dumps(err_body)[:160])
+
     failed = [n for n, ok, _ in results if not ok]
     print(f"\nSECURITY MATRIX: {len(results) - len(failed)}/{len(results)} passed")
     if failed:
@@ -281,10 +319,12 @@ def run(base: str) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://127.0.0.1:8000/api/v1")
+    ap.add_argument("--rate-limit-per-min", type=int, default=120,
+                    help="RATE_LIMIT_PER_MIN the server is configured with (CONTRACTS §10)")
     a = ap.parse_args()
     print(f"security matrix against {a.base}")
     try:
-        return run(a.base)
+        return run(a.base, a.rate_limit_per_min)
     except httpx.HTTPError as exc:
         print(f"FAIL transport: {exc}")
         return 1
