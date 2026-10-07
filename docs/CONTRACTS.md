@@ -355,10 +355,37 @@ Beyond the endpoints in API_SPEC.md, these complete the surface (same convention
   `GET /dashboard/provider?from&to` → utilization, bookings_by_status, revenue_cents,
   upcoming_bookings, top_offers; `GET /dashboard/customer` → active bookings, spend,
   unread_notifications, recent_orders; `GET /dashboard/admin` → platform totals.
-- AI (task 6 implements; routes may 503 `dependency_unavailable` until then):
-  `POST /ai/parse-search {text}` → structured filters; `POST /ai/listing-draft {raw_text, category_key}`;
-  `POST /ai/price-suggest {offer_id | category+region+mode}` → `{suggested_min_cents, suggested_max_cents, rationale}`;
-  `GET /ai/utilization-insights?org_id`; `GET /ai/copilot?org_id`.
+- AI (`/api/v1/ai/*`, deterministic: no model, no network, no writes — see docs/AI_SPEC.md):
+  `POST /ai/parse-search {text}` → `{raw_text, category_key, category_id, category_confidence,
+  city, country, quantity, unit, window_start, window_end, budget_min_cents, budget_max_cents,
+  currency, constraints[], confidence, unparsed_fragments[]}`: exactly the filters `GET /offers`
+  accepts below, so a parsed question can be run unchanged.
+  `POST /ai/listing-draft {raw_text, category_key?, currency}` → `{title, description,
+  category_key, category_confidence, attributes, suggested_availabilities[], missing_fields[],
+  unit_label, suggested_unit_amount_cents, currency}`. Nothing is invented: every field the text
+  did not state is listed under `missing_fields` (subset of `category_key`, `availability`,
+  `unit_amount_cents`, `location`, `description`).
+  `POST /ai/price-suggest {offer_id | category_key + city|country + capacity_mode + unit_label,
+  currency}` → `{suggested_min_cents, suggested_max_cents, currency, rationale, confidence,
+  method (comparables|cold_start_floor), comparable_count}`. The sample is tried city → country →
+  global and stops at the first tier with ≥3 comparables; the tier used is named in `rationale`.
+  Responses never carry another org's identifiers.
+  `GET /ai/utilization-insights?org_id&from&to` (default 28 days, max 92, §2 window errors) →
+  `{items[{definition_id, name, category_key, period_start, period_end, utilization_pct,
+  booked_slots, total_slots}], total, idle_windows[{definition_id, dow, start_time, end_time,
+  occurrences, note}], demand_counts[{category_key, open_demands, trend_note}], truncated,
+  window}`. `occurrences` is how many times that weekday/hour block was published and stayed
+  unbooked — not the length of the window.
+  `GET /ai/copilot?org_id` → `{summary_text, next_7d_bookings, at_risk_holds[],
+  top_idle_capacity[], revenue_last_30d_cents, currency, truncated}`; `summary_text` is
+  assembled from the same figures the payload carries.
+  Org-scoped routes need a session (401), an active or explicit organization (400) and
+  `can_manage_org` on that organization (403). No `/ai/*` route writes a row, and none may gate
+  or price a booking (§12).
+  Money has two labelled axes: `/dashboard/provider revenue_cents` is service-dated
+  (`bookings.window_start`, `/orders?provider=true` is the cash view), while `/ai/copilot
+  revenue_last_30d_cents` is cash-dated (`orders.placed_at`) because its sentence reads as money
+  collected — on a young account every paid booking is still in the future.
 - Admin: users/providers/disputes/audit-logs per API_SPEC + `GET/PATCH /admin/categories`,
   `POST /admin/promotions`, `GET /admin/analytics`.
 
