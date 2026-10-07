@@ -1,6 +1,8 @@
 // Provider home: the numbers a seller acts on, all from GET /dashboard/provider.
 // The window is server-owned (§8): `from`/`to` travel together, and leaving them
 // empty asks for the trailing default rather than a client-side guess.
+// The two assistant panels under the KPIs read the same window from `/ai/*`; they
+// render only when they have something to say, so advice never gates the numbers.
 
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -13,6 +15,8 @@ import { EmptyState, ErrorPanel, Loading } from '@/components/ui/States';
 import { InputField } from '@/components/ui/Field';
 import { formatDateTime, formatMoney } from '@/lib/format';
 import { BookingStatusBadge } from '@/features/booking/components/BookingStatusBadge';
+import { useCopilot, useUtilizationInsights } from '@/features/assistant/hooks';
+import { CopilotCard, QuietHoursCard } from '@/features/assistant/components/AssistantCards';
 import type { BookingStatus } from '@/types/api';
 
 const STATUS_ORDER: BookingStatus[] = [
@@ -40,6 +44,13 @@ export function ProviderDashboardPage() {
         windowed ? isoFromDate(to, true) : undefined,
       ),
   });
+
+  // Advisory reads over the same window the dashboard answers for, called before the
+  // dashboard's own early returns so the hook order stays stable either way.
+  const assistantFrom = windowed ? isoFromDate(from) : undefined;
+  const assistantTo = windowed ? isoFromDate(to, true) : undefined;
+  const copilot = useCopilot();
+  const insights = useUtilizationInsights(assistantFrom, assistantTo);
 
   if (query.isPending) return <Loading label={t('common.loading')} />;
   if (query.isError)
@@ -132,6 +143,9 @@ export function ProviderDashboardPage() {
           </div>
         </Card>
       </div>
+
+      {copilot.data ? <CopilotCard briefing={copilot.data} /> : null}
+      {insights.data ? <QuietHoursCard insights={insights.data} /> : null}
 
       <Card>
         <h2>{t('prov.upcoming')}</h2>
