@@ -9,13 +9,14 @@ from fastapi import APIRouter, Query, Request
 from app.api.v1.deps import ActorDep, PageDep, envelope
 from app.core.deps import SessionDep
 from app.core.errors import OwnershipRequired, ValidationFailed
+from app.core.routing import TransactionalRoute
 from app.models.crosscut import REVIEW_STATUSES, Review
 from app.schemas.commerce import ReviewInput, ReviewOut, ReviewReplyInput
 from app.services import booking as booking_svc
 from app.services import marketplace as market
 from app.services import reviews as svc
 
-router = APIRouter(tags=["reviews"])
+router = APIRouter(route_class=TransactionalRoute, tags=["reviews"])
 
 
 def _payload(row) -> dict:

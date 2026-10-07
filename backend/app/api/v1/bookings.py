@@ -23,6 +23,7 @@ from app.api.v1.deps import (
 )
 from app.core.deps import SessionDep
 from app.core.errors import OwnershipRequired, ValidationFailed
+from app.core.routing import TransactionalRoute
 from app.models.booking import BOOKING_STATUSES, Booking, BookingStatusEvent
 from app.schemas.booking import (
     BookingCreate,
@@ -34,7 +35,7 @@ from app.services import booking as booking_svc
 from app.services import commerce
 from app.services.notifications import notify, notify_org
 
-router = APIRouter(prefix="/bookings", tags=["bookings"])
+router = APIRouter(route_class=TransactionalRoute, prefix="/bookings", tags=["bookings"])
 
 
 async def _load(session, actor, booking_id: uuid.UUID) -> Booking:

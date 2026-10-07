@@ -15,6 +15,7 @@ from app.core.errors import (
     Unprocessable,
     ValidationFailed,
 )
+from app.core.routing import TransactionalRoute
 from app.models.capacity import CapacityDefinition, CapacityResource
 from app.models.marketplace import Offer
 from app.schemas.capacity import FreeWindow
@@ -23,7 +24,7 @@ from app.services import marketplace as svc
 
 OFFER_STATUSES = ("draft", "published", "paused", "closed")
 
-router = APIRouter(prefix="/offers", tags=["marketplace"])
+router = APIRouter(route_class=TransactionalRoute, prefix="/offers", tags=["marketplace"])
 
 
 def _dump(payload) -> dict:

@@ -15,13 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.deps import ActorDep, PageDep, envelope
 from app.core.deps import SessionDep, SettingsDep, current_user
 from app.core.errors import NotFound, Unauthorized
+from app.core.routing import TransactionalRoute
 from app.core.security import decode_access_token
 from app.models.crosscut import Notification
 from app.models.identity import User
 from app.schemas.commerce import NotificationOut
 from app.services import notifications as svc
 
-router = APIRouter(prefix="/notifications", tags=["notifications"])
+router = APIRouter(route_class=TransactionalRoute, prefix="/notifications", tags=["notifications"])
 
 HEARTBEAT_SECONDS = 15.0
 

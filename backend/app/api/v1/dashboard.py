@@ -13,6 +13,7 @@ from fastapi import APIRouter, Query
 from app.api.v1.deps import ActorDep, booking_payload, order_payload, resolve_window
 from app.core.deps import SessionDep
 from app.core.errors import OwnershipRequired
+from app.core.routing import TransactionalRoute
 from app.schemas.dashboard import (
     AdminDashboard,
     CustomerDashboard,
@@ -21,7 +22,7 @@ from app.schemas.dashboard import (
 )
 from app.services import dashboard as svc
 
-router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+router = APIRouter(route_class=TransactionalRoute, prefix="/dashboard", tags=["dashboard"])
 
 
 @router.get("/provider")

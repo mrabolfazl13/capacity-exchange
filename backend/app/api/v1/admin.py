@@ -18,6 +18,7 @@ from fastapi import APIRouter, Query, Request
 from app.api.v1.deps import ActorDep, PageDep, envelope, resolve_window
 from app.core.deps import SessionDep
 from app.core.errors import RoleRequired, ValidationFailed
+from app.core.routing import TransactionalRoute
 from app.models.crosscut import (
     DISPUTE_KINDS,
     DISPUTE_STATUSES,
@@ -40,7 +41,7 @@ from app.schemas.dashboard import PlatformAnalytics
 from app.schemas.identity import AdminUserRow, RoleInput, UserRoleOut
 from app.services import admin as svc
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(route_class=TransactionalRoute, prefix="/admin", tags=["admin"])
 
 ANALYTICS_MAX_DAYS = 92
 ANALYTICS_DEFAULT_DAYS = 30

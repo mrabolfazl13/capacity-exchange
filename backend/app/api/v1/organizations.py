@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from app.api.v1.deps import Actor, ActorDep, PageDep, envelope, get_actor
 from app.core.deps import SessionDep
 from app.core.errors import Conflict, NotFound, OwnershipRequired
+from app.core.routing import TransactionalRoute
 from app.models.identity import OrgStaff, Organization, User, UserRole
 from app.schemas.identity import (
     OrganizationInput,
@@ -19,7 +20,7 @@ from app.schemas.identity import (
 )
 from app.services import auth as svc
 
-router = APIRouter(prefix="/organizations", tags=["organizations"])
+router = APIRouter(route_class=TransactionalRoute, prefix="/organizations", tags=["organizations"])
 
 
 def _org_out(org: Organization) -> dict:

@@ -21,6 +21,7 @@ from fastapi import APIRouter, Query
 from app.api.v1.deps import Actor, ActorDep, resolve_window
 from app.core.deps import SessionDep
 from app.core.errors import NotFound, OwnershipRequired, ValidationFailed
+from app.core.routing import TransactionalRoute
 from app.services import assistant as svc
 
 from capacity_ai.db import CatalogCategory
@@ -39,7 +40,7 @@ from capacity_ai.schemas import (
 )
 from capacity_ai.semantic_query import CategorySpec, parse_query
 
-router = APIRouter(prefix="/ai", tags=["assistant"])
+router = APIRouter(route_class=TransactionalRoute, prefix="/ai", tags=["assistant"])
 
 #: The copilot's usage window: recent history plus the bookable week ahead.
 COPILOT_PAST_DAYS = 28

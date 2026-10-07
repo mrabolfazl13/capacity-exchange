@@ -19,6 +19,7 @@ from app.core.errors import (
     OwnershipRequired,
     ValidationFailed,
 )
+from app.core.routing import TransactionalRoute
 from app.models.commerce import ORDER_PAYMENT_STATUSES, ORDER_STATUSES, Order, Payment
 from app.schemas.commerce import (
     FulfillmentNoteInput,
@@ -30,7 +31,7 @@ from app.schemas.commerce import (
 from app.services import booking as booking_svc
 from app.services import commerce as svc
 
-router = APIRouter(tags=["commerce"])
+router = APIRouter(route_class=TransactionalRoute, tags=["commerce"])
 
 
 async def _order(session: SessionDep, actor: ActorDep, order_id: uuid.UUID) -> Order:

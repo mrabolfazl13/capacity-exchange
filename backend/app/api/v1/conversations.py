@@ -10,6 +10,7 @@ from starlette.responses import JSONResponse
 from app.api.v1.deps import ActorDep, PageDep, envelope
 from app.core.deps import SessionDep
 from app.core.errors import ValidationFailed
+from app.core.routing import TransactionalRoute
 from app.models.crosscut import CONVERSATION_STATUSES
 from app.schemas.commerce import (
     ConversationCreateInput,
@@ -20,7 +21,7 @@ from app.schemas.commerce import (
 )
 from app.services import conversations as svc
 
-router = APIRouter(prefix="/conversations", tags=["conversations"])
+router = APIRouter(route_class=TransactionalRoute, prefix="/conversations", tags=["conversations"])
 
 
 def _payload(row, *, view: str) -> dict:

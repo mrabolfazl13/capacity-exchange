@@ -9,12 +9,13 @@ from fastapi import APIRouter, Query, Request
 from app.api.v1.deps import ActorDep, PageDep, envelope
 from app.core.deps import SessionDep
 from app.core.errors import OwnershipRequired, ValidationFailed
+from app.core.routing import TransactionalRoute
 from app.models.crosscut import DISPUTE_KINDS, DISPUTE_STATUSES
 from app.schemas.commerce import DisputeCreateInput, DisputeOut, DisputeResolveInput
 from app.services import booking as booking_svc
 from app.services import disputes as svc
 
-router = APIRouter(prefix="/disputes", tags=["disputes"])
+router = APIRouter(route_class=TransactionalRoute, prefix="/disputes", tags=["disputes"])
 
 
 def _payload(row) -> dict:

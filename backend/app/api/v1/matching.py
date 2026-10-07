@@ -13,12 +13,13 @@ from fastapi import APIRouter, Query, Request
 from app.api.v1.deps import ActorDep, PageDep, envelope
 from app.core.deps import SessionDep
 from app.core.errors import NotFound, OwnershipRequired, ValidationFailed
+from app.core.routing import TransactionalRoute
 from app.models.marketplace import DEMAND_STATUSES, MATCH_STATUSES, Demand, Match, Offer
 from app.schemas.marketplace import DemandInput, DemandOut, DemandPatch, MatchOut, OfferOut
 from app.services import marketplace as market
 from app.services import matching as svc
 
-router = APIRouter(tags=["matching"])
+router = APIRouter(route_class=TransactionalRoute, tags=["matching"])
 
 
 async def _demand_payload(session, demand: Demand) -> dict:

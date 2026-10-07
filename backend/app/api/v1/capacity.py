@@ -26,6 +26,7 @@ from app.api.v1.deps import (
 from app.core.audit import record_audit
 from app.core.deps import SessionDep
 from app.core.errors import Conflict, NotFound, OwnershipRequired, ValidationFailed
+from app.core.routing import TransactionalRoute
 from app.models.capacity import (
     AvailabilityOverride,
     CapacityCategory,
@@ -52,8 +53,8 @@ from app.schemas.capacity import (
 )
 from app.services import capacity as cap
 
-router = APIRouter(tags=["capacity"])
-catalog_router = APIRouter(prefix="/catalog", tags=["catalog"])
+router = APIRouter(route_class=TransactionalRoute, tags=["capacity"])
+catalog_router = APIRouter(route_class=TransactionalRoute, prefix="/catalog", tags=["catalog"])
 
 MAX_PLAN_DAYS = 120
 MAX_FREE_QUERY_DAYS = 92

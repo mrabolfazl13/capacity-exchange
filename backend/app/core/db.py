@@ -31,12 +31,20 @@ def get_sessionmaker(request: Request) -> async_sessionmaker[AsyncSession]:
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    """FastAPI dependency: one session per request, autocommit-on-2xx pattern."""
+    """FastAPI dependency: one session per request, committed by the route handler.
+
+    `TransactionalRoute` commits as soon as the endpoint's response is built, which is
+    the ordering clients depend on. The commit below is the net for a session that still
+    holds a transaction at teardown — a route declared without that class, or work begun
+    after the response — and not the normal path for writes.
+    """
     maker: async_sessionmaker[AsyncSession] = get_sessionmaker(request)
     async with maker() as session:
+        request.state.db_session = session
         try:
             yield session
-            await session.commit()
+            if session.in_transaction():
+                await session.commit()
         except Exception:
             await session.rollback()
             raise

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request
 from starlette.responses import JSONResponse
 
 from app.core.deps import CurrentUser, SessionDep
+from app.core.routing import TransactionalRoute
 from app.schemas.identity import (
     LoginInput,
     LogoutInput,
@@ -15,7 +16,7 @@ from app.schemas.identity import (
 )
 from app.services import auth as svc
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(route_class=TransactionalRoute, prefix="/auth", tags=["auth"])
 
 
 def _dump_user(payload: dict) -> dict:
