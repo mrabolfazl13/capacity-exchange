@@ -4,6 +4,10 @@
 // Nothing is written until the publish step: POST /capacities carries the units
 // inline, then availability rules, overrides and the listing follow against the
 // ids the server minted. That ordering keeps a half-finished draft off the database.
+//
+// The two assistant panels (§8) honour the same rule: `POST /ai/listing-draft` and
+// `POST /ai/price-suggest` only ever fill empty boxes on this form. Publishing, and
+// every price, stays the provider's explicit act.
 
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -11,6 +15,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { capacityApi, offerApi, type DefinitionInput, type OverrideInput, type RecurringAvailabilityInput } from '@/api/endpoints';
 import { describeError } from '@/api/errors';
 import { useCategories } from '@/features/marketplace/hooks';
+import { useListingDraft, usePriceSuggestion } from '@/features/assistant/hooks';
+import { fillFromListingDraft, sortGaps, type ListingFill } from '@/features/assistant/logic';
 import { useI18n, type MessageKey } from '@/i18n/index';
 import { useToast, toastError } from '@/components/ui/Toast';
 import { Badge, Card } from '@/components/ui/Card';
@@ -21,8 +27,10 @@ import { formatMoney } from '@/lib/format';
 import type {
   BookingMode,
   CapacityMode,
+  ListingDraftGap,
   OfferPricingMode,
   OverrideKind,
+  PriceSuggestion,
 } from '@/types/api';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -190,6 +198,49 @@ function toFloatOrNull(value: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * A listing draft merged into the form without overwriting anything the provider typed.
+ * The exception is a box still holding this form's own default (a quantity of 1, the
+ * starting USD): a parsed value is better information than our placeholder.
+ *
+ * The draft's title and description land on both the resource and its listing — at this
+ * point they describe the same thing, both boxes are empty, and every later edit is the
+ * provider's.
+ */
+function applyFill(cur: Draft, fill: ListingFill): Draft {
+  const primaryUnit = cur.units[0]?.key ?? '';
+  const units = cur.units.map((u, i) => {
+    if (i !== 0) return u;
+    const untouched = toInt(u.min_quantity, 1) === 1 && toInt(u.max_quantity, 1) === 1;
+    return {
+      ...u,
+      unit_label: u.unit_label.trim() ? u.unit_label : fill.unitLabel,
+      min_quantity: untouched && fill.quantity ? fill.quantity : u.min_quantity,
+      max_quantity: untouched && fill.quantity ? fill.quantity : u.max_quantity,
+    };
+  });
+
+  return {
+    ...cur,
+    units,
+    categoryId: cur.categoryId || fill.categoryId,
+    resourceName: cur.resourceName.trim() ? cur.resourceName : fill.title,
+    resourceDescription: cur.resourceDescription.trim()
+      ? cur.resourceDescription
+      : fill.description,
+    offerTitle: cur.offerTitle.trim() ? cur.offerTitle : fill.title,
+    offerDescription: cur.offerDescription.trim()
+      ? cur.offerDescription
+      : fill.description,
+    rules:
+      cur.rules.length > 0
+        ? cur.rules
+        : fill.rules.map((r) => ({ key: uid(), unitKey: primaryUnit, ...r })),
+    price: cur.price || fill.price,
+    currency: cur.currency === 'USD' && fill.currency ? fill.currency : cur.currency,
+  };
+}
+
 export function CapacityWizardPage() {
   const { t } = useI18n();
   const toasts = useToast();
@@ -200,7 +251,49 @@ export function CapacityWizardPage() {
   const [draft, setDraft] = useState<Draft>(initialDraft);
   const [blocked, setBlocked] = useState(false);
 
+  // Assistant state (§8): a draft merged into this form, and a market band shown next
+  // to the price box. Neither writes to the server, and a failure leaves the boxes alone.
+  const listingDraft = useListingDraft();
+  const priceSuggest = usePriceSuggestion();
+  const [draftText, setDraftText] = useState('');
+  const [draftNote, setDraftNote] = useState<string | null>(null);
+  const [gaps, setGaps] = useState<ListingDraftGap[]>([]);
+  const [band, setBand] = useState<PriceSuggestion | null>(null);
+
   const patch = (p: Partial<Draft>) => setDraft((d) => ({ ...d, ...p }));
+
+  const categoryKey = categories.data?.items.find((c) => c.id === draft.categoryId)?.key;
+
+  function runListingDraft() {
+    const rawText = draftText.trim();
+    if (!rawText) return;
+    listingDraft.mutate(
+      { rawText, categoryKey },
+      {
+        onSuccess: (d) => {
+          const fill = fillFromListingDraft(d, categories.data?.items ?? []);
+          setDraft((cur) => applyFill(cur, fill));
+          setGaps(sortGaps(fill.gaps));
+          setDraftNote(t('ai.draft.applied'));
+        },
+      },
+    );
+  }
+
+  function runPriceSuggest() {
+    setBand(null);
+    priceSuggest.mutate(
+      {
+        category_key: categoryKey,
+        city: draft.city.trim() || undefined,
+        country: draft.country.trim() || undefined,
+        capacity_mode: draft.capacityMode,
+        unit_label: draft.units[0]?.unit_label.trim() || undefined,
+        currency: draft.currency,
+      },
+      { onSuccess: setBand },
+    );
+  }
 
   const unitOptions = useMemo(
     () =>
@@ -288,25 +381,69 @@ export function CapacityWizardPage() {
         ) : null}
 
         {step === 1 ? (
-          <div className="form-grid">
-            <InputField
-              label={t('wizard.resourceName')}
-              required
-              value={draft.resourceName}
-              onChange={(e) => patch({ resourceName: e.target.value })}
-            />
-            <SelectField
-              label={t('wizard.capacityMode')}
-              value={draft.capacityMode}
-              onChange={(e) => patch({ capacityMode: e.target.value as CapacityMode })}
-              options={MODES.map((m) => ({ value: m, label: t(MODE_KEYS[m]) }))}
-            />
-            <TextareaField
-              label={t('wizard.resourceDescription')}
-              rows={4}
-              value={draft.resourceDescription}
-              onChange={(e) => patch({ resourceDescription: e.target.value })}
-            />
+          <div className="stack">
+            <div className="form-grid">
+              <InputField
+                label={t('wizard.resourceName')}
+                required
+                value={draft.resourceName}
+                onChange={(e) => patch({ resourceName: e.target.value })}
+              />
+              <SelectField
+                label={t('wizard.capacityMode')}
+                value={draft.capacityMode}
+                onChange={(e) => patch({ capacityMode: e.target.value as CapacityMode })}
+                options={MODES.map((m) => ({ value: m, label: t(MODE_KEYS[m]) }))}
+              />
+              <TextareaField
+                label={t('wizard.resourceDescription')}
+                rows={4}
+                value={draft.resourceDescription}
+                onChange={(e) => patch({ resourceDescription: e.target.value })}
+              />
+            </div>
+
+            <div className="card stack-tight">
+              <TextareaField
+                label={t('ai.draft.label')}
+                rows={3}
+                value={draftText}
+                placeholder={t('ai.draft.placeholder')}
+                onChange={(e) => setDraftText(e.target.value)}
+              />
+              <div className="row">
+                <span className="small muted">{t('ai.draft.hint')}</span>
+                <div className="spacer" />
+                <Button
+                  variant="primary"
+                  size="sm"
+                  loading={listingDraft.isPending}
+                  disabled={!draftText.trim()}
+                  onClick={runListingDraft}
+                >
+                  {t('ai.draft.run')}
+                </Button>
+              </div>
+              {listingDraft.isError ? (
+                <p className="error-text" role="alert">
+                  {t('ai.draft.failed')}
+                </p>
+              ) : null}
+              {draftNote && !listingDraft.isError ? (
+                <div className="stack-tight">
+                  <p className="small" role="status">
+                    {draftNote}
+                  </p>
+                  {gaps.length > 0 ? (
+                    <p className="small muted">
+                      {t('ai.draft.missing', {
+                        fields: gaps.map((g) => t(`ai.gap.${g}` as MessageKey)).join(', '),
+                      })}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
@@ -373,40 +510,78 @@ export function CapacityWizardPage() {
         ) : null}
 
         {step === 5 ? (
-          <div className="form-grid">
-            <InputField
-              label={t('wizard.offerTitle')}
-              required
-              value={draft.offerTitle}
-              onChange={(e) => patch({ offerTitle: e.target.value })}
-            />
-            <TextareaField
-              label={t('wizard.offerDescription')}
-              required
-              rows={5}
-              value={draft.offerDescription}
-              onChange={(e) => patch({ offerDescription: e.target.value })}
-            />
-            <SelectField
-              label={t('wizard.pricingMode')}
-              value={draft.pricingMode}
-              onChange={(e) => patch({ pricingMode: e.target.value as OfferPricingMode })}
-              options={PRICING_MODES.map((m) => ({ value: m, label: t(`wizard.pricing.${m}`) }))}
-            />
-            <InputField
-              label={t('wizard.pricePerUnit')}
-              required
-              inputMode="decimal"
-              value={draft.price}
-              onChange={(e) => patch({ price: e.target.value })}
-            />
-            <InputField
-              label={t('wizard.currency')}
-              required
-              maxLength={3}
-              value={draft.currency}
-              onChange={(e) => patch({ currency: e.target.value.toUpperCase() })}
-            />
+          <div className="stack">
+            <div className="form-grid">
+              <InputField
+                label={t('wizard.offerTitle')}
+                required
+                value={draft.offerTitle}
+                onChange={(e) => patch({ offerTitle: e.target.value })}
+              />
+              <TextareaField
+                label={t('wizard.offerDescription')}
+                required
+                rows={5}
+                value={draft.offerDescription}
+                onChange={(e) => patch({ offerDescription: e.target.value })}
+              />
+              <SelectField
+                label={t('wizard.pricingMode')}
+                value={draft.pricingMode}
+                onChange={(e) => patch({ pricingMode: e.target.value as OfferPricingMode })}
+                options={PRICING_MODES.map((m) => ({ value: m, label: t(`wizard.pricing.${m}`) }))}
+              />
+              <InputField
+                label={t('wizard.pricePerUnit')}
+                required
+                inputMode="decimal"
+                value={draft.price}
+                onChange={(e) => patch({ price: e.target.value })}
+              />
+              <InputField
+                label={t('wizard.currency')}
+                required
+                maxLength={3}
+                value={draft.currency}
+                onChange={(e) => patch({ currency: e.target.value.toUpperCase() })}
+              />
+            </div>
+
+            <div className="card stack-tight">
+              <div className="row">
+                <h3 style={{ margin: 0 }}>{t('ai.price.title')}</h3>
+                <Badge tone="info">{t('ai.advisory')}</Badge>
+                <div className="spacer" />
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={priceSuggest.isPending}
+                  onClick={runPriceSuggest}
+                >
+                  {t('ai.price.run')}
+                </Button>
+              </div>
+              <span className="small muted">{t('ai.price.hint')}</span>
+              {priceSuggest.isError ? (
+                <p className="error-text" role="alert">
+                  {t('ai.price.failed')}
+                </p>
+              ) : null}
+              {band ? (
+                <div className="stack-tight">
+                  <p style={{ margin: 0 }} className="mono">
+                    {formatMoney(band.suggested_min_cents, band.currency)} –{' '}
+                    {formatMoney(band.suggested_max_cents, band.currency)}
+                  </p>
+                  <p className="small muted">{band.rationale}</p>
+                  <p className="small muted">
+                    {band.method === 'comparables'
+                      ? t('ai.price.comparables', { count: band.comparable_count })
+                      : t('ai.price.coldStart')}
+                  </p>
+                </div>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
@@ -603,7 +778,7 @@ function AvailabilityStep({
                 onChange={(e) => setRule(r.key, { dow: e.target.value })}
                 options={[0, 1, 2, 3, 4, 5, 6].map((d) => ({
                   value: String(d),
-                  label: t(`wizard.dow.${d}` as MessageKey),
+                  label: t(`common.dow.${d}` as MessageKey),
                 }))}
               />
               <InputField
