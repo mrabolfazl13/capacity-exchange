@@ -218,8 +218,8 @@ def summarize_copilot(
         parts.append(
             f"Suggested action: {DOW_NAMES[w.dow]} {w.start_time}-{w.end_time} on "
             f"{next((m.name for m in measures if m.definition_id == w.definition_id), 'a resource')} "
-            f"has been empty in {w.occurrences} consecutive weeks — price it lower or open it to "
-            f"a different category."
+            f"was published {w.occurrences} time(s) and stayed empty every time — price it "
+            f"lower or open it to a different category."
         )
     else:
         parts.append(
