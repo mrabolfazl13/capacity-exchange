@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     smtp_from: str = Field(default="no-reply@capacityexchange.test")
 
     app_name: str = Field(default="capacity-exchange-backend")
-    app_version: str = Field(default="0.1.0")
+    app_version: str = Field(default="1.0.0")
 
     @property
     def sqlalchemy_database_url(self) -> str:

@@ -39,7 +39,7 @@ from capacity_ai.listing_draft import ListingDraft, RecurringPattern, draft_list
 from capacity_ai.pricing import PriceSuggestion, suggest_price
 from capacity_ai.semantic_query import CategorySpec, ParsedQuery, parse_query
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = [
     "CatalogCategory",

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capacityexchange-backend"
-version = "0.1.0"
+version = "1.0.0"
 description = "Capacity Exchange marketplace backend (FastAPI + SQLAlchemy async + PostgreSQL 16)"
 requires-python = ">=3.12"
 dependencies = [
