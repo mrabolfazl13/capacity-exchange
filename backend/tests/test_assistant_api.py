@@ -179,6 +179,30 @@ async def test_pricing_widens_its_scope_instead_of_quoting_nothing(client):
     assert " in IR" in wider["rationale"]
 
 
+async def test_a_price_band_names_the_billing_unit_it_compared(client):
+    """Widening may drop the capacity mode, but never the money axis in silence.
+
+    A per-pallet listing priced from per-hour listings is a different number, so the
+    only acceptable answer either keeps `unit_label` or says the band came from every
+    billing unit in the category.
+    """
+    provider = await make_provider(client, "ai.units@example.test")
+    for cents in (5000, 5500, 6500):
+        other = await make_provider(client, f"ai.unit{cents}@example.test")
+        await live_offer(client, other, quantity=2, unit_amount_cents=cents)
+
+    kept = await price(client, provider, category_key="meeting_room", currency="USD",
+                       unit_label="hour", capacity_mode="quantity")
+    assert kept["method"] == "comparables" and kept["comparable_count"] == 3
+    assert "meeting_room per hour" in kept["rationale"], "the sample is hour-priced"
+
+    widened = await price(client, provider, category_key="meeting_room", currency="USD",
+                          unit_label="pallet")
+    assert widened["method"] == "comparables"
+    assert "any billing unit" in widened["rationale"], "no pallet price exists to compare"
+    assert " per pallet" not in widened["rationale"]
+
+
 # ------------------------------------------------------------------ utilization
 
 

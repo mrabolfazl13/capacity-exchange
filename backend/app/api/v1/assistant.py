@@ -107,9 +107,47 @@ async def listing_draft(body: ListingDraftRequest, session: SessionDep, actor: A
 # ------------------------------------------------------------------ price suggestion
 
 
+def _tiers(city: Optional[str], country: Optional[str], mode: Optional[str],
+           unit_label: Optional[str]) -> list[tuple[str, dict]]:
+    """Widen the comparable sample one axis at a time, cheapest to lose first.
+
+    Geography widens before the billing unit because a Berlin price learned from
+    national data is still a price per the same unit, while a per-pallet price
+    learned from per-hour listings is simply a different number. The capacity
+    mode is the loosest of the three: how a resource is metered matters less
+    than what one unit of it costs.
+    """
+    by_unit = {"unit_label": unit_label} if unit_label else {}
+    ladder = [
+        (city or country or "", {"city": city, "capacity_mode": mode, **by_unit}),
+        (country, {"country": country, "capacity_mode": mode, **by_unit}),
+        ("", {"capacity_mode": mode, **by_unit}),
+        ("", dict(by_unit)),
+        ("", {}),
+    ]
+    tiers: list[tuple[str, dict]] = []
+    seen: set[tuple] = set()
+    for region, filters in ladder:
+        clean = {k: v for k, v in filters.items() if v}
+        marker = (region, tuple(sorted(clean.items())))
+        if marker not in seen:
+            seen.add(marker)
+            tiers.append((region, clean))
+    return tiers
+
+
+def _scope(category_key: str, filters: dict, unit_label: Optional[str]) -> Optional[str]:
+    """Name what the sample actually compared, so a widened band reads widened."""
+    if unit_label and filters.get("unit_label") != unit_label:
+        return f"{category_key}, any billing unit"
+    if unit_label:
+        return f"{category_key} per {unit_label}"
+    return category_key
+
+
 @router.post("/price-suggest")
 async def price_suggest(body: PriceSuggestRequest, session: SessionDep, actor: ActorDep) -> dict:
-    """Suggest a price band from published comparables: city, then country, then category.
+    """Suggest a price band from published comparables, widening one axis at a time.
 
     Widening is explicit rather than silent — the rationale names the scope that
     produced the band, because a Berlin price suggested from global data is advice
@@ -136,30 +174,27 @@ async def price_suggest(body: PriceSuggestRequest, session: SessionDep, actor: A
     if not category_key:
         raise ValidationFailed("Provide `offer_id` or `category_key`")
 
-    tiers: list[tuple[str, dict]] = [
-        (city or country or "", {"city": city, "capacity_mode": mode, "unit_label": unit_label}),
-        (country, {"country": country, "capacity_mode": mode, "unit_label": unit_label}),
-        ("", {}),
-    ]
     widest: list = []
-    for region, filters in tiers:
+    for region, filters in _tiers(city, country, mode, unit_label):
         sample = await svc.comparables(
             session,
             category_key=category_key,
             currency=body.currency,
             exclude_offer_id=offer_id,
-            **{k: v for k, v in filters.items() if v},
+            **filters,
         )
         if len(widest) < len(sample):
             widest = sample
         if len(sample) >= MIN_COMPARABLES:
             suggestion = suggest_price(
-                sample, currency=body.currency, region=region or None, scope=category_key)
+                sample, currency=body.currency, region=region or None,
+                scope=_scope(category_key, filters, unit_label))
             return PriceSuggestionOut.model_validate(asdict(suggestion)).model_dump(mode="json")
 
     floor = max((c.unit_amount_cents for c in widest), default=0)
     suggestion = suggest_price(
-        widest, currency=body.currency, region=None, scope=category_key,
+        widest, currency=body.currency, region=None,
+        scope=_scope(category_key, {}, unit_label),
         cold_start_floor_cents=floor or svc.COLD_START_FLOOR_CENTS)
     return PriceSuggestionOut.model_validate(asdict(suggestion)).model_dump(mode="json")
 
