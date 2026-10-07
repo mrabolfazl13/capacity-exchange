@@ -10,6 +10,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     admin,
+    assistant,
     auth,
     bookings,
     capacity,
@@ -39,3 +40,4 @@ router.include_router(conversations.router)
 router.include_router(notifications.router)
 router.include_router(dashboard.router)
 router.include_router(admin.router)
+router.include_router(assistant.router)
