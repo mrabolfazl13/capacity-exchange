@@ -3,10 +3,11 @@
 Conventions (CONTRACTS.md §1/§2):
 - JSON is snake_case; IDs are UUID strings; timestamps are ISO-8601 UTC with ``Z``.
 - Money is ALWAYS integer minor units (``*_cents``) plus an ISO ``currency`` code.
-- Errors use the envelope ``{"error": {code, message, details, request_id}}``.
+- Errors use the envelope ``{"error": {code, message, details, request_id}}``, which
+  ``app.core.errors`` owns — the algorithms raise nothing.
 
-Pure algorithm modules use plain dataclasses internally; these models are the
-transport layer exposed by ``capacity_ai.api.router``.
+Pure algorithm modules use plain dataclasses internally; these models are the transport
+layer the `/ai/*` routes in ``backend/app/api/v1/assistant.py`` serialize through.
 """
 
 from __future__ import annotations
@@ -66,30 +67,6 @@ class ParsedQueryOut(BaseModel):
     constraints: list[str] = Field(default_factory=list)
     confidence: float = 0.0
     unparsed_fragments: list[str] = Field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# Matching
-# ---------------------------------------------------------------------------
-
-
-class MatchReasonOut(BaseModel):
-    """One entry of the ``matches.reasons`` jsonb array (§5.3)."""
-
-    model_config = ConfigDict(extra="allow")
-
-    code: str
-    message: str
-    contribution: float
-    signal: str
-
-
-class MatchOut(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    offer_id: str
-    score: float
-    reasons: list[MatchReasonOut] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -222,28 +199,3 @@ class CopilotOut(BaseModel):
     top_idle_capacity: list[dict[str, Any]] = Field(default_factory=list)
     revenue_last_30d_cents: int
     currency: str
-
-
-# ---------------------------------------------------------------------------
-# Error envelope (§2)
-# ---------------------------------------------------------------------------
-
-
-class ErrorBody(BaseModel):
-    code: str
-    message: str
-    details: dict[str, Any] = Field(default_factory=dict)
-    request_id: str
-
-
-class ErrorEnvelope(BaseModel):
-    error: ErrorBody
-
-
-class ListEnvelope(BaseModel):
-    """Generic list shape for §1-compliant collections."""
-
-    items: list[Any] = Field(default_factory=list)
-    total: int = 0
-    limit: int = 20
-    offset: int = 0
