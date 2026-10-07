@@ -29,6 +29,17 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+#: Objects the migration owns and the model deliberately does not declare.
+#: `offers.search_vector` is a GENERATED tsvector column with a GIN index (see the comment in
+#: app/models/marketplace.py); SQLAlchemy cannot round-trip a computed PG column, so
+#: autogenerate reads its absence in the model as a DROP. Excluding exactly these two names is
+#: what lets `alembic check` run as a real drift gate in CI instead of failing on a phantom.
+MIGRATION_OWNED = frozenset({("search_vector", "column"), ("ix_offers_search_vector", "index")})
+
+
+def _include_object(object, name, type_, reflected, compare_to) -> bool:  # noqa: ANN001
+    return (name, type_) not in MIGRATION_OWNED
+
 
 def _database_url() -> str:
     """Precedence: programmatic `-x`/config url > DATABASE_URL > app settings default.
@@ -56,6 +67,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=_include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -67,6 +79,7 @@ def _do_run_migrations(connection: Connection) -> None:
         target_metadata=target_metadata,
         compare_type=True,
         compare_server_default=True,
+        include_object=_include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
