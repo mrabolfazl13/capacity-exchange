@@ -22,8 +22,8 @@ from capacity_ai.semantic_query import (
 
 # "12 m2", "120 square meters", "about 40 sqm"
 _AREA_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(m2|sqm|square\s*meters?|square\s*metres?)\b")
-# "20 seats", "room for 12 people", "seating for 20"
-_PEOPLE_RE = re.compile(r"(\d+)\s*(?:seats?|people|persons?|pax|desks?|stations?)\b")
+# "20 seats", "room for 12 people", "seating for 20", "a 12-seat room"
+_PEOPLE_RE = re.compile(r"(\d+)\s*[-–]?\s*(?:seats?|people|persons?|pax|desks?|stations?)\b")
 # "9am-6pm", "09:00-17:00", "9 to 5", "9 - 17"
 _RANGE_RE = re.compile(
     r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|—|to|until|till)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b"
@@ -44,6 +44,12 @@ _UNIT_BY_WORD = {
     "pallet": "pallet", "sqm": "square_meter", "m2": "square_meter",
 }
 _DOW_BY_ABBREV = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+# A whole block of days named by one phrase, as providers write it.
+_DAY_GROUPS: tuple[tuple[str, int, int], ...] = (
+    ("working days", 0, 4), ("working day", 0, 4), ("business days", 0, 4),
+    ("business day", 0, 4), ("weekdays", 0, 4), ("weekday", 0, 4),
+    ("weekends", 5, 6), ("weekend", 5, 6),
+)
 # Units that read naturally in front of a listing name ("12 pallet cold storage").
 _COUNTED_UNITS = {"pallet", "seat", "desk", "room", "truck", "van", "forklift", "machine",
                   "appointment", "vehicle_slot"}
@@ -101,8 +107,13 @@ def _time_ranges(text: str) -> list[tuple[str, int, int, int, int]]:
 
 
 def _day_spans(text: str) -> list[tuple[str, int, int]]:
-    """[(phrase, first_dow, last_dow)] for single days and inclusive ranges."""
-    out = []
+    """[(phrase, first_dow, last_dow)] for single days, ranges and named blocks.
+
+    "weekdays 9 to 18" has to mean Monday to Friday. Reading only the day names
+    made that phrase look like no day at all, and the fallback published the
+    range on all seven.
+    """
+    found: list[tuple[int, str, int, int]] = []
     for m in _DOW_RE.finditer(text):
         first = _DOW_BY_ABBREV[m.group(1)]
         tail = text[m.end():]
@@ -113,8 +124,13 @@ def _day_spans(text: str) -> list[tuple[str, int, int]]:
         else:
             last, phrase = first, m.group(0)
         if first <= last:
-            out.append((phrase, first, last))
-    return out
+            found.append((m.start(), phrase, first, last))
+    for phrase, first, last in _DAY_GROUPS:
+        group = re.search(rf"\b{re.escape(phrase)}\b", text)
+        if group:
+            found.append((group.start(), phrase, first, last))
+    found.sort(key=lambda item: item[0])
+    return [(phrase, first, last) for _, phrase, first, last in found]
 
 
 def _availability_patterns(text: str, quantity: int) -> list[RecurringPattern]:
@@ -213,7 +229,8 @@ def _title(parsed: ParsedQuery, label: Optional[str], city: Optional[str]) -> st
     return title[:MAX_TITLE_CHARS]
 
 
-def _description(raw_text: str, parsed: ParsedQuery, patterns: Sequence[RecurringPattern]) -> str:
+def _description(raw_text: str, parsed: ParsedQuery, patterns: Sequence[RecurringPattern],
+                 *, priced: bool) -> str:
     """Normalize the provider's own words; add nothing they did not write."""
     body = re.sub(r"\s+", " ", raw_text).strip()
     sentences = [body[:1].upper() + body[1:]] if body else []
@@ -227,7 +244,9 @@ def _description(raw_text: str, parsed: ParsedQuery, patterns: Sequence[Recurrin
             extras.append(f"Suggested availability across {len(patterns)} slot(s), from {hours}.")
     if parsed.constraints:
         extras.append("Stated features: " + ", ".join(sorted(parsed.constraints)) + ".")
-    if parsed.budget_max_cents:
+    # A number the parser read as a budget is the price when the text stated one,
+    # so that sentence would contradict the price box.
+    if parsed.budget_max_cents and not priced:
         extras.append("Budget mentioned by the provider was noted but not published as a price.")
     return " ".join(sentences + extras).strip()
 
@@ -268,7 +287,7 @@ def draft_listing(
 
     return ListingDraft(
         title=_title(parsed, labels.get(category or ""), parsed.city),
-        description=_description(raw_text, parsed, patterns),
+        description=_description(raw_text, parsed, patterns, priced=cents is not None),
         category_key=category,
         category_confidence=parsed.category_confidence if not category_key else 1.0,
         attributes=_attributes(raw_text.lower(), parsed),

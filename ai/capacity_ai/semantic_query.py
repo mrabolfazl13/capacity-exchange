@@ -141,10 +141,17 @@ UNIT_SYNONYMS: dict[str, str] = {
     "truck": "truck", "trucks": "truck", "van": "van", "vans": "van",
     "forklift": "forklift", "forklifts": "forklift", "machine": "machine",
     "machines": "machine", "appointment": "appointment", "appointments": "appointment",
+    # A headcount is a seat count: "12 person meeting room" asks for room for twelve.
+    "person": "seat", "persons": "seat", "people": "seat", "pax": "seat",
     "sqm": "square_meter", "square meter": "square_meter",
     "square meters": "square_meter", "square metre": "square_meter",
     "m2": "square_meter",
 }
+
+#: Units that count things. Only these may arrive hyphenated to a number
+#: ("12-seat"), because "24-hour" and "48-hour" describe a duration, not 24 units.
+_COUNTED_UNITS = frozenset({"seat", "pallet", "desk", "room", "truck", "van", "forklift",
+                            "machine", "appointment", "vehicle_slot"})
 
 # Weekday names -> ISO dow (0=Monday .. 6=Sunday) per §1.
 WEEKDAYS: dict[str, int] = {
@@ -206,6 +213,12 @@ _STOPWORDS = frozenset(
 _NUM_RE = re.compile(r"^\d+(?:[.,]\d+)?$")
 _LEADING_CURRENCY_RE = re.compile(r"^[\$€£](\d+(?:[.,]\d+)?)$")
 _TRAILING_CURRENCY_RE = re.compile(r"^(\d+(?:[.,]\d+)?)[\$€£]$")
+#: "12-seat", "12-pallet" — a counted unit written as a compound.
+_HYPHEN_COUNT_RE = re.compile(r"^(\d{1,6})[-–]([a-z]+)s?$")
+#: Sentence punctuation is not part of a word, but it does stick to one
+#: ("a room in Berlin."). Kept deliberately narrow: "$", "/", "-" and the
+#: decimal point all carry meaning inside a token.
+_EDGE_PUNCT = ",;:!?()[]{}\"'`«»“”‘’…"
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +233,11 @@ class _Text:
         self.raw = raw
         norm = raw.lower().replace("\n", " ").replace("\t", " ")
         norm = re.sub(r"\s+", " ", norm).strip()
-        self.tokens: list[str] = norm.split(" ") if norm else []
+        # Punctuation is stripped at the edges of each token so "berlin." still
+        # reads as the city; inside a token "$", "/" and "-" stay meaningful.
+        self.tokens: list[str] = [tok for tok in (
+            chunk.strip(_EDGE_PUNCT).rstrip(".") for chunk in norm.split(" ")
+        ) if tok]
         self.consumed: list[bool] = [False] * len(self.tokens)
 
     def find_phrase(self, phrase: str, consume: bool = True, *,
@@ -339,15 +356,42 @@ def _parse_number(token: str) -> Optional[float]:
 
 def _parse_category(t: _Text, parsed: ParsedQuery, cat_pairs: list[tuple[str, str]]) -> None:
     hits: dict[str, int] = {}
+    specific: dict[str, int] = {}
+    first_at: dict[str, int] = {}
     for phrase, key in cat_pairs:
-        while t.find_phrase(phrase) is not None:
+        words = len(phrase.split(" "))
+        idx = t.find_phrase(phrase)
+        while idx is not None:
             hits[key] = hits.get(key, 0) + 1
+            specific[key] = max(specific.get(key, 0), words)
+            first_at.setdefault(key, idx)
+            idx = t.find_phrase(phrase)
     if not hits:
         return
-    best_key = max(sorted(hits), key=lambda k: (hits[k], -len(k)))
+    # A category is the thing on offer, so the most specific phrase names it and an
+    # accessory mentioned beside it ("with forklift") does not. Where two phrases are
+    # equally specific, the earlier one is the noun: "warehouse with forklift" is a
+    # warehouse, and "forklift for the warehouse" is a forklift.
+    best_key = max(sorted(hits), key=lambda k: (specific[k], hits[k], -first_at[k]))
     words = sum(hits.values())
     parsed.category_key = best_key
     parsed.category_confidence = round(min(0.95, 0.55 + 0.15 * words), 2)
+
+
+#: "9 to 18", "9am-6pm", "09:00-17:00" — opening hours, not a bookable window.
+_HOURS_RE = re.compile(r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|–|to|until|till)\s*"
+                       r"\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b")
+_CONNECTORS = frozenset({"to", "-", "–", "until", "till", "through"})
+#: Which weekdays a listing recurs on — a shape of the week, not a date range.
+_RECURRING_DAYS_RE = re.compile(
+    r"\b(?:weekdays?|working\s+days?|business\s+days?|mon(?:day)?\s*(?:-|–|to)\s*fri(?:day)?)\b")
+#: Amount written together with the unit it bills by: "$60/hour", "€40 per day".
+_PER_UNIT_AMOUNT_RE = re.compile(r"^[\$€£](\d+(?:[.,]\d+)?)(?:\s*/\s*|\s*per\s*)([a-z]+)$")
+
+
+def _token_at(joined: str, char: int) -> int:
+    """Index of the token covering ``char`` in a space-joined token string."""
+    return 0 if char == 0 else len(joined[:char].split(" ")) - 1
 
 
 def _parse_location(t: _Text, parsed: ParsedQuery) -> None:
@@ -359,7 +403,7 @@ def _parse_location(t: _Text, parsed: ParsedQuery) -> None:
             end = idx + len(name)
             word_end = end == len(joined) or joined[end] == " "
             if word_start and word_end:
-                tok_i = len(joined[:idx].split(" ")) - 1
+                tok_i = _token_at(joined, idx)
                 if not any(t.consumed[tok_i:tok_i + len(name.split(" "))]):
                     city, country = CITY_GAZETTEER[name]
                     parsed.city = parsed.city or city
@@ -376,7 +420,18 @@ def _parse_quantity(t: _Text, parsed: ParsedQuery) -> None:
     n = len(t.tokens)
     for i in range(n):
         tok = t.tokens[i]
-        if t.consumed[i] or not _NUM_RE.match(tok):
+        if t.consumed[i]:
+            continue
+        compound = _HYPHEN_COUNT_RE.match(tok)
+        if compound:
+            unit = (UNIT_SYNONYMS.get(compound.group(2))
+                    or UNIT_SYNONYMS.get(compound.group(2) + "s"))
+            if unit in _COUNTED_UNITS and parsed.quantity is None:
+                parsed.quantity = max(1, int(compound.group(1)))
+                parsed.unit = unit
+                t.consume_index(i, 1)
+            continue
+        if not _NUM_RE.match(tok):
             continue
         value = _parse_number(tok)
         if value is None:
@@ -396,10 +451,40 @@ def _parse_quantity(t: _Text, parsed: ParsedQuery) -> None:
                     break
         if unit is None:
             continue
+        if unit == "square_meter":
+            # An area is not a bookable count, and `min_quantity` is the only
+            # quantity filter `/offers` takes: "40 sqm" must not become "40 seats".
+            continue
         if parsed.quantity is None:
             parsed.quantity = max(1, int(value))
             parsed.unit = unit
             t.consume_index(i, span)
+
+
+def _closing_span(t: _Text, i: int, start_dow: int) -> Optional[tuple[int, int]]:
+    """'monday to friday' -> (2 tokens, 4 days) when the second day closes the span."""
+    if i + 1 >= len(t.tokens) or t.consumed[i] or t.consumed[i + 1]:
+        return None
+    if t.tokens[i] not in _CONNECTORS:
+        return None
+    end_dow = WEEKDAYS.get(t.tokens[i + 1])
+    if end_dow is None or end_dow < start_dow:
+        return None
+    return 2, end_dow - start_dow
+
+
+def _consume_hour_ranges(t: _Text) -> None:
+    """Drop opening hours and recurring-day words from the fragment list.
+
+    `/offers` has no hour-of-day filter and no "which weekdays" filter, so
+    "9 to 18" and "weekdays" cannot become windows. Leaving them unconsumed
+    would put them in the keyword box, where they match nothing and turn a
+    readable search into an empty one.
+    """
+    joined = " ".join(t.tokens)
+    for pattern in (_HOURS_RE, _RECURRING_DAYS_RE):
+        for m in pattern.finditer(joined):
+            t.consume_index(_token_at(joined, m.start()), len(m.group(0).split(" ")))
 
 
 def _parse_time(t: _Text, parsed: ParsedQuery, now: datetime) -> None:
@@ -439,16 +524,25 @@ def _parse_time(t: _Text, parsed: ParsedQuery, now: datetime) -> None:
                     day = today + timedelta(days=(dow - today.weekday()) % 7)
                 else:
                     day = _next_weekday(today, dow)
-                t.consume_index(idx, len(phrase.split(" ")))
+                closing = _closing_span(t, idx + len(phrase.split(" ")), dow)
+                tokens = len(phrase.split(" ")) + (closing[0] if closing else 0)
+                t.consume_index(idx, tokens)
                 set_day(day)
+                if closing:
+                    # "monday to friday" is a span, not a day: keep the start and
+                    # close the window on the weekday that ends it.
+                    end_t = DAY_PARTS[part][1] if part else time(23, 59)
+                    box["end"] = datetime.combine(day + timedelta(days=closing[1]), end_t,
+                                                  tzinfo=timezone.utc)
                 found = True
                 break
             if found:
                 break
+    if box["start"] is not None and part is not None:
+        t.find_phrase(part)  # consume the day-part phrase
+    _consume_hour_ranges(t)
     if box["start"] is None:
         return
-    if part is not None:
-        t.find_phrase(part)  # consume the day-part phrase
     parsed.window_start, parsed.window_end = box["start"], box["end"]
 
 
@@ -460,6 +554,10 @@ def _amount_at(t: _Text, i: int) -> tuple[Optional[float], Optional[str], int]:
     tok = t.tokens[i]
     m = _LEADING_CURRENCY_RE.match(tok)
     if m:
+        return _parse_number(m.group(1)), CURRENCY_TOKENS.get(tok[0]), 1
+    m = _PER_UNIT_AMOUNT_RE.match(tok)
+    if m:
+        # "$60/hour" is a price per unit, and `max_unit_price` is the filter for it.
         return _parse_number(m.group(1)), CURRENCY_TOKENS.get(tok[0]), 1
     m = _TRAILING_CURRENCY_RE.match(tok)
     if m:

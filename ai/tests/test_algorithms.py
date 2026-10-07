@@ -210,6 +210,26 @@ def test_a_draft_without_a_price_asks_for_one_instead_of_guessing():
     assert "Budget mentioned" not in draft.description
 
 
+def test_weekdays_in_a_draft_means_monday_to_friday():
+    """Providers write "weekdays 9 to 18", not seven day names.
+
+    Reading only the day names made that phrase look like no day at all, and the
+    fallback published the hours on Saturday and Sunday too — availability the
+    provider never offered.
+    """
+    draft = draft_listing("Studio space in Berlin, weekdays 9 to 18, $40/hour.", now=NOW)
+    assert {p.dow for p in draft.suggested_availabilities} == {0, 1, 2, 3, 4}
+    assert all(p.source_phrase == "weekdays 9 to 18" for p in draft.suggested_availabilities)
+    weekend = draft_listing("Van space in Berlin, weekend 10 to 16, $40/hour.", now=NOW)
+    assert {p.dow for p in weekend.suggested_availabilities} == {5, 6}
+
+
+def test_a_stated_price_is_not_also_described_as_a_budget():
+    draft = draft_listing("Cold storage in Berlin, mon-fri 8 to 18, $1.80 per pallet.", now=NOW)
+    assert draft.suggested_unit_amount_cents == 180 and draft.unit_label == "pallet"
+    assert "Budget mentioned" not in draft.description
+
+
 # --------------------------------------------------------------------------- semantic query
 
 
@@ -256,3 +276,61 @@ def test_what_the_parser_cannot_understand_is_returned_not_dropped():
     assert parsed.category_key is None
     assert parsed.confidence <= 0.3, "no signal, so no confidence either"
     assert parsed.unparsed_fragments, "the caller has to be able to say what it missed"
+
+
+def test_an_accessory_beside_the_listing_does_not_become_the_category():
+    """"warehouse with forklift" is a warehouse; the forklift is a feature.
+
+    Ranking on the key length let a one-word synonym of another category win the
+    tie, so the search answered with equipment listings.
+    """
+    assert parse_query("warehouse with forklift", NOW).category_key == "warehouse"
+    assert parse_query("forklift for the warehouse", NOW).category_key == "equipment"
+    parsed = parse_query("a 12 person meeting room in Berlin with forklift", NOW)
+    assert parsed.category_key == "meeting_room"
+    assert "forklift_available" in parsed.constraints, "the feature is still a filter"
+
+
+def test_a_headcount_reads_as_seats_however_it_is_written():
+    for text in ("meeting room for 12 people", "a 12 person meeting room",
+                 "12-seat boardroom", "12 seats meeting room"):
+        parsed = parse_query(text, NOW)
+        assert (parsed.quantity, parsed.unit) == (12, "seat"), text
+    # A duration is not a quantity: 24-hour opening must not mean 24 units.
+    assert parse_query("parking 24-hour", NOW).quantity is None
+
+
+def test_an_area_is_never_a_bookable_quantity():
+    parsed = parse_query("40 sqm storage space in Munich", NOW)
+    assert parsed.quantity is None, "min_quantity counts units, not square meters"
+    draft = draft_listing("40 sqm storage space in Munich, open daily.", now=NOW)
+    assert draft.attributes["area_square_meters"] == 40.0
+
+
+def test_a_weekday_span_closes_the_window_on_the_day_that_ends_it():
+    parsed = parse_query("meeting room monday to friday", NOW)
+    assert parsed.window_start == datetime(2026, 10, 12, 0, 0, tzinfo=timezone.utc)
+    assert parsed.window_end == datetime(2026, 10, 16, 23, 59, tzinfo=timezone.utc)
+
+
+def test_opening_hours_and_recurring_days_stay_out_of_the_keyword_box():
+    """`/offers` filters by date range, not by hour or by weekday shape.
+
+    Unconsumed text becomes the keyword box, and "9 to 18" as a keyword matches
+    no listing, so a readable search would have come back empty.
+    """
+    parsed = parse_query("warehouse weekdays 9 to 18 in Berlin", NOW)
+    assert (parsed.category_key, parsed.city) == ("warehouse", "Berlin")
+    assert parsed.unparsed_fragments == []
+
+
+def test_sentence_punctuation_does_not_hide_the_city_or_the_price():
+    parsed = parse_query("Meeting room in Berlin. $60/hour.", NOW)
+    assert (parsed.city, parsed.country) == ("Berlin", "DE")
+    assert parsed.budget_max_cents == 6000 and parsed.currency == "USD"
+
+
+def test_a_comma_joined_city_still_resolves():
+    parsed = parse_query("boardroom in Oslo, for 8 people", NOW)
+    assert parsed.city == "Oslo"
+    assert (parsed.quantity, parsed.unit) == (8, "seat")
