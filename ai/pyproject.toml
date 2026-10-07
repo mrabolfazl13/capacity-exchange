@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capacity-ai"
+version = "0.1.0"
+description = "Capacity Exchange deterministic matching/insight algorithms (offline-first, LLM optional)"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.13",
+]
+
+[tool.setuptools.packages.find]
+include = ["capacity_ai*"]
