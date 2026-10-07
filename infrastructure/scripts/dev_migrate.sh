@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 [ -f .env ] && { set -a; . ./.env; set +a; }
-export DATABASE_URL="${DATA…city}"
+export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://capacity:capacity@localhost:5544/capacity}"
 
 if [ ! -d backend ]; then
   echo "[migrate] ERROR: backend/ not populated yet (backend agent owns Alembic)." >&2

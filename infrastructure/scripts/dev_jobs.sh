@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 [ -f .env ] && { set -a; . ./.env; set +a; }
-export DATABASE_URL="${DATA…city}"
+export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://capacity:capacity@localhost:5544/capacity}"
 export CELERY_MODE=local
 export REDIS_URL=""   # deliberate: no Redis binary on this dev box
 

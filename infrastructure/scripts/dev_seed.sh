@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 [ -f .env ] && { set -a; . ./.env; set +a; }
-export DATABASE_URL="${DATA…city}"
+export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://capacity:capacity@localhost:5544/capacity}"
 
 if [ ! -f backend/scripts/seed.py ]; then
   echo "[seed] ERROR: backend/scripts/seed.py not found (owned by backend agent)." >&2

@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 RUN=.run; mkdir -p "$RUN"
 [ -f .env ] && { set -a; . ./.env; set +a; }
-export DATABASE_URL="${DATA…city}"
+export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://capacity:capacity@localhost:5544/capacity}"
 export CELERY_MODE=local   # no Redis on this machine (CONTRACTS §10/§11)
 
 port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }

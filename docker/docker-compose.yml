@@ -15,7 +15,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-capacity}
       POSTGRES_USER: ${POSTGRES_USER:-capacity}
-      POSTGRES_PASSWORD: ${POST…ity}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-capacity}
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
@@ -56,9 +56,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_MODE: celery
       APP_ENV: ${APP_ENV:-dev}
-      SECRET_KEY: ${SECR…e-me}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost}
-      WEBHOOK_SECRET: ${WEBH…ret}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-dev-webhook-secret}
     ports:
       - "${BACKEND_HOST_PORT:-8000}:8000"
     depends_on:
