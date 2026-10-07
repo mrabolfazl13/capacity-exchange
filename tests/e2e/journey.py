@@ -150,7 +150,11 @@ def journey(base: str) -> int:
     definition_id = definition["id"]
     check("capacity definition created", bool(definition_id))
 
-    start = (utcnow() + timedelta(days=2)).replace(minute=0, second=0, microsecond=0)
+    # Anchored to an hour inside the 09:00-18:00 rule below, not to the wall clock:
+    # a fixture that opens at the current hour is unbookable at 03:00 UTC, and the
+    # journey would then be reporting on its own timing instead than the service.
+    start = (utcnow() + timedelta(days=2)).replace(hour=10, minute=0, second=0,
+                                                   microsecond=0)
     dow = start.weekday()
     provider.expect("POST", f"/capacities/{resource_id}/availability", 201, json_body={
         "definition_id": definition_id, "dow": dow,
@@ -232,8 +236,13 @@ def journey(base: str) -> int:
     booking = customer.expect("POST", "/bookings", 201, json_body={
         "hold_id": booking_id,
     }, idem=f"book-{tag}")
-    check("booking created from hold", booking.get("status") in ("confirmed", "draft", "hold"),
+    # Conversion mints a booking and retires the hold it came from (§5.5): the ids are
+    # different rows, so every step below has to follow the booking, not the hold.
+    hold_id, booking_id = booking_id, booking["id"]
+    check("booking created from hold", booking.get("status") == "confirmed",
           f"status={booking.get('status')} payment={booking.get('payment_status')}")
+    check("hold and booking are separate rows", hold_id != booking_id,
+          f"hold={hold_id[:8]} booking={booking_id[:8]}")
 
     orders = customer.expect("GET", "/orders", 200)
     order_items = orders.get("items", [])
@@ -276,8 +285,13 @@ def journey(base: str) -> int:
     timeline = customer.expect("GET", f"/bookings/{booking_id}/timeline", 200)
     events = timeline.get("items", [])
     seen = {e.get("to_status") for e in events}
-    check("status timeline recorded", {"hold", "confirmed", "in_progress", "completed"} <= seen,
+    check("status timeline recorded", {"confirmed", "in_progress", "completed"} <= seen,
           f"events={sorted(x for x in seen if x)}")
+
+    hold_tl = customer.expect("GET", f"/bookings/{hold_id}/timeline", 200)
+    seen_hold = {e.get("to_status") for e in hold_tl.get("items", [])}
+    check("hold retired on conversion", {"hold", "cancelled"} <= seen_hold,
+          f"events={sorted(x for x in seen_hold if x)}")
 
     print("\n[6] review, dashboards, notifications, RBAC")
     review = customer.expect("POST", "/reviews", 201, json_body={
@@ -308,9 +322,13 @@ def journey(base: str) -> int:
     code, _ = anon.request("GET", "/bookings", auth=False)
     check("unauthenticated booking list -> 401", code == 401, f"{code}")
     other = Client(base)
-    other.expect("POST", "/auth/register", 201, json_body={
+    # Signed in, not anonymous: an unauthenticated request answers 401 and would let the
+    # tenant boundary pass without ever being tested.
+    other_reg = other.expect("POST", "/auth/register", 201, json_body={
         "email": f"nosy.{tag}@e2e.test", "password": DEMO_PASSWORD,
         "full_name": "Nosy", "roles": ["customer"]}, auth=False)
+    other.access = other_reg.get("access_token") or (other_reg.get("tokens") or {}).get("access_token")
+    check("stranger is authenticated", bool(other.access))
     code_cross, ec = other.error_code("GET", f"/bookings/{booking_id}")
     check("cross-user booking read denied", code_cross in (403, 404), f"{code_cross} {ec}")
     code_prov, ec_prov = provider.error_code("GET", "/admin/users")

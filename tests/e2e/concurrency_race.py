@@ -44,8 +44,10 @@ async def setup_capacity(http: httpx.AsyncClient, base: str, tok: dict,
                            headers={"Authorization": f"Bearer {tok['access']}"})).json()
     items = cats.get("items", cats)
     room = next((c for c in items if c.get("key") == "meeting_room"), items[0])
+    # Anchored inside the 09:00-18:00 rule the fixture publishes; a window taken from
+    # the current hour would be unbookable overnight and prove nothing about the race.
     start = (datetime.now(timezone.utc) + timedelta(days=3)).replace(
-        minute=0, second=0, microsecond=0)
+        hour=10, minute=0, second=0, microsecond=0)
     res = (await http.post(f"{base}/capacities", json={
         "name": f"Race Room {tag}", "description": "Concurrency race fixture.",
         "category_id": room["id"], "capacity_mode": "scheduled",
@@ -59,12 +61,14 @@ async def setup_capacity(http: httpx.AsyncClient, base: str, tok: dict,
         "max_quantity": capacity, "slot_duration_minutes": 60,
         "buffer_before_minutes": 0, "buffer_after_minutes": 0, "attributes": {},
     }, headers={"Authorization": f"Bearer {tok['access']}"})).json()
-    await http.post(f"{base}/capacities/{res['id']}/availability", json={
+    avail = await http.post(f"{base}/capacities/{res['id']}/availability", json={
         "definition_id": dfn["id"], "dow": start.weekday(),
         "start_time": "09:00:00", "end_time": "18:00:00", "quantity": capacity,
         "valid_from": iso(start)[:10],
         "valid_until": iso(start + timedelta(days=90))[:10], "is_active": True,
-    }, headers={"Authorization": f"Bearer {tok['access']}"}).json()
+    }, headers={"Authorization": f"Bearer {tok['access']}"})
+    if avail.status_code != 201:
+        raise SystemExit(f"FAIL fixture availability rejected: {avail.status_code} {avail.text[:200]}")
     off = (await http.post(f"{base}/offers", json={
         "definition_id": dfn["id"], "title": f"Race offer {tag}",
         "description": "Concurrency race offer.", "pricing_mode": "per_unit_time",
@@ -74,8 +78,11 @@ async def setup_capacity(http: httpx.AsyncClient, base: str, tok: dict,
         "booking_mode": "instant", "hold_minutes": 15,
         "cancellation_policy": [{"hours_before": 0, "refund_pct": 100}],
     }, headers={"Authorization": f"Bearer {tok['access']}"})).json()
-    await http.post(f"{base}/offers/{off['id']}/publish",
-                    headers={"Authorization": f"Bearer {tok['access']}"}).json()
+    published = await http.post(f"{base}/offers/{off['id']}/publish",
+                                headers={"Authorization": f"Bearer {tok['access']}"})
+    if published.status_code != 200:
+        raise SystemExit(f"FAIL fixture offer not published: "
+                         f"{published.status_code} {published.text[:200]}")
     return {"offer_id": off["id"], "definition_id": dfn["id"],
            "window_start": iso(start), "window_end": iso(start + timedelta(hours=1))}
 
@@ -138,16 +145,21 @@ async def run_race(base: str, attempters: int, capacity: int) -> int:
 
     prov_tok = prov["access"]
     async with httpx.AsyncClient(timeout=30.0) as http:
+        # `provider=true` is the org workspace view; without it this lists the provider's
+        # own bookings as a customer — an empty list, and a check that passes by itself.
         booked = (await http.get(
             f"{base}/bookings",
-            params={"offer_id": cap["offer_id"], "limit": 100},
+            params={"offer_id": cap["offer_id"], "provider": "true", "limit": 100},
             headers={"Authorization": f"Bearer {prov_tok}"})).json()
         active = [b for b in booked.get("items", [])
                   if b.get("status") in ("hold", "confirmed", "in_progress")]
         total_qty = sum(int(b.get("quantity", 1)) for b in active)
         print(f"server-side active bookings={len(active)} total_quantity={total_qty}")
-        if total_qty > capacity:
-            print("FAIL overbooking persisted server-side")
+        if len(active) != len(granted):
+            print(f"FAIL server holds {len(active)} rows, but {len(granted)} holds were granted")
+            ok = False
+        if total_qty != capacity:
+            print(f"FAIL units consumed {total_qty} != capacity {capacity}")
             ok = False
 
     print("RACE RESULT:", "PASS — no double booking" if ok else "FAIL")
