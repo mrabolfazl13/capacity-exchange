@@ -2,6 +2,8 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useI18n } from '@/i18n/index';
 import { useCategories, useOfferSearch } from '@/features/marketplace/hooks';
+import { useParseSearch } from '@/features/assistant/hooks';
+import { mappingFromParsedQuery } from '@/features/assistant/logic';
 import { OfferCard } from '@/features/marketplace/components/OfferCard';
 import { InputField, SelectField } from '@/components/ui/Field';
 import { Button } from '@/components/ui/Button';
@@ -13,72 +15,129 @@ import type { OfferSearchParams } from '@/types/api';
 
 const PAGE_SIZE = 20;
 
+const EMPTY_DRAFT = {
+  q: '',
+  category_id: '',
+  city: '',
+  country: '',
+  from: '',
+  to: '',
+  min_quantity: '',
+  max_unit_cents: '',
+  booking_mode: '',
+  sort: 'relevance',
+};
+
+type DraftState = typeof EMPTY_DRAFT;
+
+/** The shareable form of the current filters: offset resets, since these are new results. */
+function toSearchParams(params: OfferSearchParams): URLSearchParams {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(
+    offerSearchQuery({ ...params, limit: undefined, offset: undefined }),
+  )) {
+    if (v !== undefined && v !== null && v !== '') sp.set(k, String(v));
+  }
+  return sp;
+}
+
+/** Boxes hold strings; the query holds the typed contract (§1 money stays integer). */
+function paramsFromDraft(draft: DraftState, offset: number): OfferSearchParams {
+  return {
+    q: draft.q || undefined,
+    category_id: draft.category_id || undefined,
+    city: draft.city || undefined,
+    country: draft.country || undefined,
+    from: draft.from || undefined,
+    to: draft.to || undefined,
+    min_quantity: draft.min_quantity ? Number(draft.min_quantity) : undefined,
+    max_unit_cents: draft.max_unit_cents ? majorToCents(draft.max_unit_cents) : undefined,
+    booking_mode:
+      draft.booking_mode === 'instant' || draft.booking_mode === 'request_confirm'
+        ? draft.booking_mode
+        : undefined,
+    sort: (draft.sort || 'relevance') as OfferSearchParams['sort'],
+    limit: PAGE_SIZE,
+    offset,
+  };
+}
+
 export function SearchPage() {
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const categoriesQuery = useCategories();
 
-  const [draft, setDraft] = useState(() => ({
-    q: searchParams.get('q') ?? '',
-    category_id: searchParams.get('category_id') ?? '',
-    city: searchParams.get('city') ?? '',
-    country: searchParams.get('country') ?? '',
-    from: searchParams.get('from') ?? '',
-    to: searchParams.get('to') ?? '',
-    min_quantity: searchParams.get('min_quantity') ?? '',
-    max_unit_cents: searchParams.get('max_unit_cents') ?? '',
-    booking_mode: searchParams.get('booking_mode') ?? '',
-    sort: searchParams.get('sort') ?? 'relevance',
-  }));
+  const [draft, setDraft] = useState<DraftState>(() => {
+    const next = { ...EMPTY_DRAFT };
+    for (const key of Object.keys(next) as (keyof DraftState)[]) {
+      const value = searchParams.get(key);
+      if (value) next[key] = value;
+    }
+    return next;
+  });
 
   const params: OfferSearchParams = useMemo(
-    () => ({
-      q: draft.q || undefined,
-      category_id: draft.category_id || undefined,
-      city: draft.city || undefined,
-      country: draft.country || undefined,
-      from: draft.from || undefined,
-      to: draft.to || undefined,
-      min_quantity: draft.min_quantity ? Number(draft.min_quantity) : undefined,
-      max_unit_cents: draft.max_unit_cents
-        ? majorToCents(draft.max_unit_cents)
-        : undefined,
-      booking_mode:
-        draft.booking_mode === 'instant' || draft.booking_mode === 'request_confirm'
-          ? draft.booking_mode
-          : undefined,
-      sort: (draft.sort || 'relevance') as OfferSearchParams['sort'],
-      limit: PAGE_SIZE,
-      offset: Number(searchParams.get('offset') ?? 0) || 0,
-    }),
+    () => paramsFromDraft(draft, Number(searchParams.get('offset') ?? 0) || 0),
     [draft, searchParams],
   );
 
   const search = useOfferSearch(params);
 
+  const parse = useParseSearch();
+  const [prose, setProse] = useState('');
+  const [proseNote, setProseNote] = useState<string | null>(null);
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const sp = new URLSearchParams();
-    for (const [k, v] of Object.entries(offerSearchQuery({ ...params, limit: undefined, offset: undefined }))) {
-      if (v !== undefined && v !== null && v !== '') sp.set(k, String(v));
+    setSearchParams(toSearchParams(params));
+  }
+
+  /**
+   * `POST /ai/parse-search` reads the sentence and fills the boxes below — it never
+   * searches on its own. Only filters it actually found are written, so a prose read
+   * cannot clear a city the buyer typed, and words it could not structure stay visible
+   * in the note instead of silently dropping out of the query.
+   */
+  async function onProseSubmit(e: FormEvent) {
+    e.preventDefault();
+    const text = prose.trim();
+    if (!text) return;
+
+    let parsed;
+    try {
+      parsed = await parse.mutateAsync(text);
+    } catch {
+      setProseNote(t('ai.search.failed'));
+      return;
     }
-    setSearchParams(sp);
+
+    const mapping = mappingFromParsedQuery(parsed, draft.q);
+    const filled: Partial<DraftState> = {};
+    for (const [key, value] of Object.entries(mapping.filters)) {
+      if (value) filled[key as keyof DraftState] = value;
+    }
+    // mapping.q keeps the buyer's own keyword when there is one, and falls back to the
+    // words the parser could not structure — so nothing read from the sentence is lost.
+    const next: DraftState = { ...draft, ...filled, q: mapping.q };
+    setDraft(next);
+    setSearchParams(toSearchParams(paramsFromDraft(next, 0)));
+
+    if (!mapping.applied) {
+      setProseNote(t('ai.search.nothingRead'));
+      return;
+    }
+    setProseNote(
+      parsed.unparsed_fragments.length > 0
+        ? t('ai.search.leftover', { fragments: parsed.unparsed_fragments.join(', ') })
+        : t('ai.search.applied'),
+    );
   }
 
   function clearAll() {
-    setDraft({
-      q: '',
-      category_id: '',
-      city: '',
-      country: '',
-      from: '',
-      to: '',
-      min_quantity: '',
-      max_unit_cents: '',
-      booking_mode: '',
-      sort: 'relevance',
-    });
+    setDraft({ ...EMPTY_DRAFT });
     setSearchParams(new URLSearchParams());
+    setProse('');
+    setProseNote(null);
   }
 
   const items = search.data?.items ?? [];
@@ -93,6 +152,33 @@ export function SearchPage() {
           <span className="subtitle">{t('market.subtitle')}</span>
         </div>
       </div>
+
+      <form className="card stack-tight" onSubmit={onProseSubmit} aria-label={t('ai.search.label')}>
+        <div className="row" style={{ alignItems: 'flex-end', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <InputField
+              label={t('ai.search.prose')}
+              value={prose}
+              placeholder={t('ai.search.prosePlaceholder')}
+              onChange={(e) => setProse(e.target.value)}
+            />
+          </div>
+          <Button
+            type="submit"
+            variant="primary"
+            loading={parse.isPending}
+            disabled={!prose.trim()}
+          >
+            {t('ai.search.read')}
+          </Button>
+        </div>
+        <span className="small muted">{t('ai.search.hint')}</span>
+        {proseNote ? (
+          <p className="small" role="status">
+            {proseNote}
+          </p>
+        ) : null}
+      </form>
 
       <form className="card grid form-grid" onSubmit={onSubmit} aria-label={t('market.title')}>
         <InputField
