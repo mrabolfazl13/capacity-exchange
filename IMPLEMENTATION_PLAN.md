@@ -8,7 +8,7 @@ check, not the intention.
 
 | Phase | Scope | Status | Verified by |
 |---|---|---|---|
-| 0 | Repo, docs, environment, Docker, CI baseline | [~] | dev scripts boot the stack on a box with no Docker; `.github/workflows/` is authored but untracked until the CI gate validates it |
+| 0 | Repo, docs, environment, Docker, CI baseline | [~] | dev scripts boot the stack on a box with no Docker; `.github/workflows/` is tracked and CI is green on the `v1.0.0` commit (backend, desktop, ai, live gate, mobile) — what is unproven is the compose topology itself, which has never been booted because there is no Docker here |
 | 1 | Architecture, contracts, error model, schema | [x] | docs/CONTRACTS.md is the authority every suite asserts against |
 | 2 | Backend core: app, auth, RBAC, migrations, jobs | [x] | 403 backend tests; single alembic head at 0001; local job runner logs five handlers |
 | 3 | Capacity engine: resources, units, availability | [x] | E2E journey steps [2] — draft resource, definition, recurring rule, `/availability/free` windows |
@@ -23,7 +23,7 @@ check, not the intention.
 | 12 | Admin: platform operations | [x] | seven admin screens exist in `desktop/src/features/admin/pages/`, rendered against a live server in a real browser per role (platform admin sees all seven with data, support reaches only the dispute queue, customer is redirected from every one); `desktop/src/__tests__/admin-access.test.tsx` (9 tests) pins that gate, and `npx vitest run` → 51 passed |
 | 13 | QA/Security: suites and live verification | [x] | security matrix 33/33 against a running server; error taxonomy, tenant isolation, rotation, burst limiting |
 | 14 | Performance: load, indexes, query budgets | [x] | `bash infrastructure/scripts/perf_gate.sh` — 8 measured p95s inside budget on a 40,000-booking corpus, each with its `EXPLAIN (ANALYZE, BUFFERS)`; numbers and limits in `docs/TESTING_STRATEGY.md` |
-| 15 | Release: artifacts, changelog, tags | [ ] | blocked on 9, 10 and the CI gate |
+| 15 | Release: artifacts, changelog, tags | [~] | tag `v1.0.0` → `ef58eec` pushed, GitHub release published with the evidence table in its notes (which stand in for a changelog); **zero assets**, because `release.yml` run `38092532378` stops at `prepare` — `API_BASE_URL` unset, four `ANDROID_KEYSTORE_*` secrets absent — and every build job after it reported `skipped`. Setting those five values and re-running the workflow on this tag is the only remaining step; see docs/RELEASE.md |
 
 ## Phase 0 — Foundation  [~]
 Repository, documentation, environment, Docker, CI baseline.

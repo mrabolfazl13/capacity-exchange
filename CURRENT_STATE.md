@@ -52,12 +52,21 @@ pgserver (embedded PostgreSQL), jobs run via CELERY_MODE=local fallback.
       `EXPLAIN (ANALYZE, BUFFERS)` printed for every measurement.
 
 ## In Progress
-- [ ] Desktop Windows installer (Tauri build) — code and `npm run build` are green; the
-      release binary is a CI job (see Blocked)
-- [ ] Mobile Android signed release APK — same reason
-- [ ] CI/CD build & release recovery — the workflows are tracked and the layers that found the
-      bugs run in CI; what is left is a green live gate on the seed fixes, then the `v1.0.0` tag
-      and the release per docs/RELEASE.md
+- [ ] Desktop Windows installer (Tauri build) — the web bundle builds and its 51 tests pass, and CI
+      is green on the tagged commit; the installer is produced only by `release.yml`, which stops at
+      `prepare` because `API_BASE_URL` is unset (see Blocked)
+- [ ] Mobile Android signed release APK — `flutter analyze`, 13 tests and CI's `build apk --debug`
+      all pass; the signed release build needs the four keystore secrets
+- [~] Release 1.0.0 — tagged (`v1.0.0` → `ef58eec`), CI green on it, GitHub release published with
+      the evidence table and an explicit list of what does not ship. `docs/RELEASE.md` has the run ids
+
+## Blocked
+- **Release artifacts need five repository settings, not code.** `release.yml` run `38092532378`
+  failed at job `check release inputs` with `repository variable API_BASE_URL is not set; a release
+  cannot be built against no API`, and the five downstream jobs reported `skipped` — so no partial or
+  debug-signed file reached the release. Adding a guessed API host or a debug keystore would produce a
+  green workflow and a useless binary, which is the failure this gate exists to prevent. The
+  `v1.0.0` release is therefore published with zero assets.
 
 ## Blocked
 - Mobile Android release build: the Gradle SDK home and `GRADLE_USER_HOME` this project is
@@ -85,11 +94,32 @@ committed.
 - main agent → contracts, e2e harness, CI, integration gate, docs
 
 ## Next Sync Point
-Every phase in `IMPLEMENTATION_PLAN.md` now has evidence: the performance layer is measured and the
-admin surface is proven in a browser (see the two handoffs below). What is left is the build phase
-per the CI/CD protocol: let CI produce the two artifacts this box cannot (Windows installer, signed
-APK), and cut the release from a run that fails honestly — no `|| true`, no `continue-on-error`, no
-deleted feature to make a build pass.
+`v1.0.0` is tagged, CI is green on the tagged commit, and the GitHub release is published with its
+evidence table. Nothing in the application is left to build; the only thing that does not exist is
+the two binaries, and they are gated on five repository settings rather than on code. Whoever has a
+real API host and a release keystore sets them and re-runs `release.yml` on this tag — no source
+change, no new tag needed.
+
+## Handoff — release 1.0.0 (release/CI) (2026-10-11)
+- Files changed: `docs/RELEASE.md` (the 1.0.0 record with both run ids and the exact failing
+  annotation), `IMPLEMENTATION_PLAN.md` (phase 0 evidence corrected to what CI actually validates;
+  phase 15 → `[~]` with what shipped and what did not), `CURRENT_STATE.md`. No source file changed
+  between the CI-green commit and the tag, which is why the tag is the tested commit.
+- APIs/contracts changed: none.
+- Migrations added: none.
+- Tests run: CI run `38092227388` on `ef58eec` — `backend (migrations + pytest on postgres:16)`,
+  `desktop (web build + vitest)`, `ai (pytest, no database)`,
+  `live gate (journey + race + security matrix over HTTP)`, `mobile (flutter analyze + test + apk)`
+  — all `success`. The performance gate was re-run twice locally on the release candidate (8/8 p95
+  inside budget); the tagged commit touches documentation only.
+- Release: https://github.com/mrabolfazl13/capacity-exchange/releases/tag/v1.0.0 — 7.3 KB of notes,
+  **zero assets**, by design.
+- Known issues: the release notes are the only changelog; `release.yml` cannot produce artifacts on
+  this repository's current settings; the compose topology has still never been booted (no Docker
+  here), so the first deploy is a supervised event per `docs/RELEASE.md`.
+- Next dependent task: none for 1.0.0. A 1.0.1 becomes necessary only when the binaries are wanted
+  (set the five values) or when one of the recorded limits is fixed — the windowed-search fan-out,
+  the missing currency axis on `/admin/analytics`, or the four unproven security controls.
 
 ## Handoff — performance layer (performance/release) (2026-10-11)
 - Files changed: `tests/perf/volume.py` (new), `tests/perf/bench.py` (new),
