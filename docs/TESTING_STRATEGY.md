@@ -195,6 +195,11 @@ Contention is asserted, not just timed: 12 simultaneous holds against a definiti
 units produced exactly 6 grants and 6 `no_availability` refusals, all 6 converted, the window then
 read as fully committed, and a 13th hold was refused.
 
+The table is one run, so the gate was re-run end to end on the release SHA against the same corpus:
+8 of 8 inside budget again, with the p95s moving by −31 ms to +47 ms (the contended hold is the
+noisiest, as expected of a measurement whose whole point is serialization). Reproducible verdict,
+not a reproduced number — which is the most a single-box p95 can honestly offer.
+
 **Where the time actually goes.** Each measurement prints `EXPLAIN (ANALYZE, BUFFERS)` for the
 statement the service compiles. The SQL is not the bottleneck anywhere: the search page costs
 3.7 ms, its count 2.3 ms, the candidate page 6.8 ms, a rules read 0.065 ms, the in-lock

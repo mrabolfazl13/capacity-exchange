@@ -23,8 +23,9 @@ each platform demands its own:
 ## Cutting a release
 
 1. Everything that can run locally is green (see `docs/TESTING_STRATEGY.md` for the commands):
-   `ai` 31, `backend` 403, `desktop` 42, `mobile` 13, and the live trio journey 39 / race PASS /
-   matrix 33.
+   `ai` 31, `backend` 403, `desktop` 51, `mobile` 13, the live trio journey 39 / race PASS /
+   matrix 33, and the performance gate (`bash infrastructure/scripts/perf_gate.sh`) with all eight
+   p95s inside budget.
 2. Configure the repository once:
    - **variable** `API_BASE_URL` — the URL the shipped clients call. `prepare` refuses an unset
      value, and refuses `http://` to any host the Android network-security config does not
