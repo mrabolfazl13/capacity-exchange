@@ -25,7 +25,9 @@ each platform demands its own:
 1. Everything that can run locally is green (see `docs/TESTING_STRATEGY.md` for the commands):
    `ai` 31, `backend` 403, `desktop` 51, `mobile` 13, the live trio journey 39 / race PASS /
    matrix 33, and the performance gate (`bash infrastructure/scripts/perf_gate.sh`) with all eight
-   p95s inside budget.
+   p95s inside budget. CI adds one proof this box cannot produce at all: `desktop native` compiles
+   the Tauri shell in release mode (Rust release linking is OOM-killed locally), so a broken native
+   layer fails here rather than at the installer step of a release run.
 2. Configure the repository once:
    - **variable** `API_BASE_URL` — the URL the shipped clients call. `prepare` refuses an unset
      value, and refuses `http://` to any host the Android network-security config does not
@@ -71,6 +73,28 @@ Steps 1 and 3 ran; step 2 did not, and that decides what this release contains.
   this section and a binary release; setting them and re-running the workflow on this tag is all
   that remains.
 - The published release notes state the same thing, listing both what ships and what does not.
+
+### After the tag: the full build sweep (2026-10-11)
+
+`v1.0.0` stays where it was cut — it points at the commit CI actually validated, and moving a
+published tag means rewriting history. What the sweep found was a coverage hole worth fixing forward:
+
+- **No workflow had ever compiled the native desktop layer.** `desktop (web build + vitest)` builds
+  the bundle only, and the sole job that could compile Rust (`tauri linux`) was gated behind
+  `prepare`, so on a repository without `API_BASE_URL` it was skipped along with the jobs that
+  genuinely need the host. A broken `Cargo.toml`, an invalid capability file or a
+  `tauri.conf.json` the CLI no longer parses therefore went green — on every push, and on the tag.
+- `desktop native (tauri linux compile check)` now runs on every push: it installs the system
+  dependencies, builds in release mode with `--no-bundle`, and asserts the output is a linked ELF
+  executable over 200 KB rather than merely a non-empty file. Green on `c8462b8` (run `38093116039`,
+  six jobs) and again after the assertion was tightened (`cf19021`, run `38093466337`).
+- The release-side job no longer `needs: prepare` and no longer receives `VITE_API_BASE_URL`: a
+  compile check that ships nothing has no business appearing to validate a configured client. A
+  manual `workflow_dispatch` proves the shape — run `38093154524`: `check release inputs` `failure`,
+  the four artifact jobs `skipped`, `tauri linux (compile check…)` **success**.
+- What this does *not* buy: the app is still never installed or launched in CI, so a native
+  capability that only misbehaves at runtime remains outside every layer, and the two installer
+  artifacts are still blocked on the same five settings.
 
 ## Verifying the artifacts by hand
 

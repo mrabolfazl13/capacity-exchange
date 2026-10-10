@@ -8,7 +8,7 @@ check, not the intention.
 
 | Phase | Scope | Status | Verified by |
 |---|---|---|---|
-| 0 | Repo, docs, environment, Docker, CI baseline | [~] | dev scripts boot the stack on a box with no Docker; `.github/workflows/` is tracked and CI is green on the `v1.0.0` commit (backend, desktop, ai, live gate, mobile) — what is unproven is the compose topology itself, which has never been booted because there is no Docker here |
+| 0 | Repo, docs, environment, Docker, CI baseline | [~] | dev scripts boot the stack on a box with no Docker; `.github/workflows/` is tracked and CI is green on the `v1.0.0` commit and after it (six jobs: ai, backend, live gate, desktop web, desktop native compile, mobile) — what is unproven is the compose topology itself, which has never been booted because there is no Docker here |
 | 1 | Architecture, contracts, error model, schema | [x] | docs/CONTRACTS.md is the authority every suite asserts against |
 | 2 | Backend core: app, auth, RBAC, migrations, jobs | [x] | 403 backend tests; single alembic head at 0001; local job runner logs five handlers |
 | 3 | Capacity engine: resources, units, availability | [x] | E2E journey steps [2] — draft resource, definition, recurring rule, `/availability/free` windows |
@@ -17,7 +17,7 @@ check, not the intention.
 | 6 | Orders and payments: lifecycle, mock provider, refunds | [x] | journey step [4] — order, intent, confirm, booking reads `paid`; cancellation policy bands tested |
 | 7 | Provider experience: wizard, offers, dashboard | [x] | desktop suite (51 tests) plus the live `/ai/*` draft and price band wired into the wizard |
 | 8 | Customer experience: discovery, booking, reviews | [x] | journey steps [3]–[6] — booking, review, dashboards, notifications, RBAC denials |
-| 9 | Desktop: Tauri + React production integration, Windows build | [~] | `npm run build` green; the Windows installer is not produced on this box (Rust release build needs more free disk than F: has) |
+| 9 | Desktop: Tauri + React production integration, Windows build | [~] | `npm run build` green and the native shell now compiles in CI (`desktop native (tauri linux compile check)` — release build, output asserted to be a linked ELF over 200 KB), which no workflow did before; the Windows installer is still not produced, on this box by disk/RAM and in CI because `release.yml` refuses an unset API host |
 | 10 | Mobile: Flutter app + Android release | [~] | 13 flutter tests pass (8 domain + 5 widget) and the debug build lands; `assembleRelease` needs the Gradle SDK home on an unmounted volume, so the signed APK is a CI job |
 | 11 | AI/Data: search, draft, pricing, insights, copilot | [x] | 31 offline algorithm tests + 10 `/ai/*` endpoint tests; prose fixes re-proven through HTTP |
 | 12 | Admin: platform operations | [x] | seven admin screens exist in `desktop/src/features/admin/pages/`, rendered against a live server in a real browser per role (platform admin sees all seven with data, support reaches only the dispute queue, customer is redirected from every one); `desktop/src/__tests__/admin-access.test.tsx` (9 tests) pins that gate, and `npx vitest run` → 51 passed |

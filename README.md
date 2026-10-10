@@ -90,8 +90,12 @@ python tests/security/matrix.py      --base http://127.0.0.1:8000/api/v1 --rate-
 
 The race is the one that matters most: 12 simultaneous holds against capacity 3 must grant
 exactly 3 and refuse the rest with `no_availability`, and the provider's own workspace view must
-agree. `.github/workflows/ci.yml` runs all of the above on every push; `release.yml` builds the
-installers and signed Android artifacts for a `v*` tag.
+agree. `.github/workflows/ci.yml` runs all of the above on every push, and besides the suites it
+compiles the desktop client twice over — the web bundle (`npm run build`) and the native Tauri
+shell (`npm run tauri build -- --no-bundle`, asserted to be a real linked ELF binary), because this
+box cannot link Rust in release mode at all. `release.yml` builds the Windows installer and the
+signed Android artifacts for a `v*` tag, and stops with a message naming whatever release
+configuration is missing rather than shipping a binary built against a guessed API host.
 
 The performance layer measures itself, against a generated 40,000-booking corpus in its own
 database:

@@ -95,10 +95,32 @@ committed.
 
 ## Next Sync Point
 `v1.0.0` is tagged, CI is green on the tagged commit, and the GitHub release is published with its
-evidence table. Nothing in the application is left to build; the only thing that does not exist is
-the two binaries, and they are gated on five repository settings rather than on code. Whoever has a
-real API host and a release keystore sets them and re-runs `release.yml` on this tag — no source
-change, no new tag needed.
+evidence table. A full build sweep afterwards closed the one coverage hole CI still had — the native
+desktop layer was never compiled anywhere — and CI is green with six jobs on `cf19021`. Nothing in the
+application is left to build; the only thing that does not exist is the two binaries, and they are
+gated on five repository settings rather than on code. Whoever has a real API host and a release
+keystore sets them and re-runs `release.yml` on the tag they want shipped — no source change needed.
+
+## Handoff — full CI/CD build sweep (release/CI) (2026-10-11)
+- Files changed: `.github/workflows/ci.yml` (new `desktop-tauri` job + the ELF assertion),
+  `.github/workflows/release.yml` (`tauri-linux` no longer `needs: prepare`, no `VITE_API_BASE_URL`,
+  same binary assertion), and the records in `README.md`, `docs/TESTING_STRATEGY.md` (release gate),
+  `docs/RELEASE.md` (step 1 and the post-tag sweep), `IMPLEMENTATION_PLAN.md` (phases 0 and 9
+  evidence), `CURRENT_STATE.md`.
+- APIs/contracts changed: none. No route, DTO, schema or role moved.
+- Migrations added: none.
+- Tests run: CI `38093116039` on `c8462b8` — six jobs, all `success`, including the new
+  `desktop native (tauri linux compile check)` (`tauri build -- --no-bundle` in release mode, then
+  a linked-ELF/size assertion). CI `38093466337` on `cf19021` — six jobs, all `success`, with the
+  tightened assertion. Release `workflow_dispatch` `38093154524` — `check release inputs` `failure`
+  (honest, `API_BASE_URL` unset), four artifact jobs `skipped`, `tauri linux (compile check)`
+  `success`. Backend 403 / ai 31 / desktop 51 / mobile 13 / journey 39 / matrix 33 unchanged.
+- Known issues: the native layer is compiled, never launched — a Tauri command that misbehaves only
+  at runtime is still unproven, and no workflow installs the app, because there is no release API
+  host to install against. `v1.0.0` was cut before this job existed, so the tag's CI record names
+  five jobs; the tag was not moved, since retargeting a published tag rewrites history.
+- Next dependent task: none. Whoever sets `API_BASE_URL` and the four keystore secrets re-runs
+  `release.yml` on the tag they want shipped, and the two installers appear without any code change.
 
 ## Handoff — release 1.0.0 (release/CI) (2026-10-11)
 - Files changed: `docs/RELEASE.md` (the 1.0.0 record with both run ids and the exact failing

@@ -272,6 +272,11 @@ A release is cut only when layers 1–4 are green in the same CI run and layer 5
 release box in the same SHA's run: CI runs the suites that are machine-independent (algorithms,
 API, live HTTP gate, client tests), while the performance gate stays a local measurement because
 its budgets are this machine's p95s and a hosted runner would compare against the wrong ruler.
+CI proves two different things about the desktop client: `desktop (web build + vitest)` proves the
+bundle and the client logic, `desktop native (tauri linux compile check)` compiles the Rust/Tauri
+shell in release mode and asserts its output is a linked ELF binary rather than a stub. Neither one
+installs or launches the app — until a release API host exists there is nothing to install against —
+so a native capability that only fails at runtime is still outside every layer here.
 The migration head must be single and at head, and every failure above is either fixed or recorded
 here as not proven. Layer 4b is the exception that is not a gate: it is a browser pass recorded per
 SHA, and the part of it CI can repeat is the layer-3 RBAC suite.
