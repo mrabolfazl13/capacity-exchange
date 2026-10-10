@@ -782,13 +782,15 @@ async def _seed_capacity(session: AsyncSession, orgs: list[OrgCtx]) -> None:
 
 
 async def _load_offers(session: AsyncSession, orgs: list[OrgCtx]) -> tuple[list[Offer], dict[str, list[Offer]]]:
+    # Scoped to the seeded organizations: the live gate creates its own orgs and published
+    # offers in this same database, and those rows are not part of the demo catalog.
+    by_org = {ctx.org.id: ctx for ctx in orgs}
     rows = (await session.execute(
         select(Offer, CapacityDefinition, CapacityResource)
         .join(CapacityDefinition, CapacityDefinition.id == Offer.definition_id)
         .join(CapacityResource, CapacityResource.id == Offer.resource_id)
-        .where(Offer.status == "published")
+        .where(Offer.status == "published", Offer.org_id.in_(by_org))
     )).all()
-    by_org = {ctx.org.id: ctx for ctx in orgs}
     offers = _attach_offer_graph(rows, by_org)
     by_category: dict[str, list[Offer]] = {}
     for offer in offers:
@@ -1042,6 +1044,20 @@ async def _journeys_exist(session: AsyncSession) -> bool:
         select(func.count()).select_from(Booking).where(Booking.meta["seed"].astext == SEED_TAG)
     )).scalar_one()
     return int(tagged) > 0
+
+
+async def _seeded_statuses(session: AsyncSession) -> dict[str, int]:
+    """Which §5.5 statuses the demo dataset can still show a row for, right now.
+
+    A seeded hold is only live for `hold_minutes`; the job runner expires it on the next tick, so
+    a database that has been running for a day no longer satisfies §9 even though every seeded
+    row is still there. Re-running the seed has to notice that and re-mint just the decayed shape.
+    """
+    rows = (await session.execute(
+        select(Booking.status, func.count())
+        .where(Booking.meta["seed"].astext == SEED_TAG).group_by(Booking.status)
+    )).all()
+    return {status: int(count) for status, count in rows}
 
 
 async def _age_trip(session: AsyncSession, trip: Trip, *, paid_at: datetime | None = None,
@@ -1807,9 +1823,13 @@ async def _summary(session: AsyncSession, ctx: Ctx) -> dict[str, Any]:
     """Read the dataset back the way an auditor would: by counting what is actually stored."""
     statuses = dict((await session.execute(
         select(Booking.status, func.count()).group_by(Booking.status))).all())
+    # §9's 4.2 is a promise about the demo dataset. The live gate writes its own reviews into the
+    # same database, so the average is measured over the seeded journeys only.
     rating, rated = (await session.execute(
         select(func.avg(Review.rating), func.count())
-        .where(Review.status == "published"))).one()
+        .select_from(Review)
+        .join(Booking, Booking.id == Review.booking_id)
+        .where(Review.status == "published", Booking.meta["seed"].astext == SEED_TAG))).one()
     dispute_rows = dict((await session.execute(
         select(Dispute.status, func.count()).group_by(Dispute.status))).all())
     categories_used = int((await session.execute(
@@ -2058,26 +2078,41 @@ async def run(*, verify: bool) -> None:
                 _classify(ctx)
                 promotion = await _seed_promotion(session, ctx)
 
-                if await _journeys_exist(session):
+                seeded = await _seeded_statuses(session)
+                fresh = not await _journeys_exist(session)
+                # Each step carries the §5.5 statuses it is responsible for. On a repair run a step
+                # is skipped only while every status it provides is still present, so a database
+                # that has just lost its holds re-mints holds and nothing else.
+                phases = (
+                    ("live bookings",
+                     lambda: _seed_live_bookings(session, ctx, settings), ("confirmed",)),
+                    ("live holds", lambda: _seed_live_holds(session, ctx), ("hold",)),
+                    ("hold expiry", lambda: _seed_live_expiry(session, ctx), ("expired",)),
+                    ("booking requests",
+                     lambda: _seed_live_requests(session, ctx, settings), ("draft",)),
+                    ("running sessions",
+                     lambda: _seed_live_running(session, ctx, settings),
+                     ("in_progress", "disputed")),
+                    ("cancellations",
+                     lambda: _seed_live_cancellations(session, ctx, settings), ("cancelled",)),
+                    ("disputes", lambda: _seed_live_disputes(session, ctx), ("disputed",)),
+                    ("exclusion proofs", lambda: _prove_exclusions(session, ctx), ()),
+                    ("demands and matches",
+                     lambda: _seed_demands(session, ctx, settings), ()),
+                    ("conversations", lambda: _seed_conversations(session, ctx), ()),
+                    ("notifications",
+                     lambda: _seed_notification_noise(session, ctx, settings), ()),
+                )
+                pending = [(label, phase) for label, phase, provides in phases
+                           if fresh or (provides and not all(seeded.get(s) for s in provides))]
+                if fresh:
+                    pending.insert(0, ("history journeys",
+                                       lambda: _seed_history(session, ctx, settings)))
+                if not pending:
                     kept = True
                 else:
                     kept = False
-                    mark = stage()
-                    await _seed_history(session, ctx, settings)
-                    timings.append(("history journeys", stage() - mark))
-                    for label, phase in (
-                        ("live bookings", lambda: _seed_live_bookings(session, ctx, settings)),
-                        ("live holds", lambda: _seed_live_holds(session, ctx)),
-                        ("hold expiry", lambda: _seed_live_expiry(session, ctx)),
-                        ("booking requests", lambda: _seed_live_requests(session, ctx, settings)),
-                        ("running sessions", lambda: _seed_live_running(session, ctx, settings)),
-                        ("cancellations", lambda: _seed_live_cancellations(session, ctx, settings)),
-                        ("disputes", lambda: _seed_live_disputes(session, ctx)),
-                        ("exclusion proofs", lambda: _prove_exclusions(session, ctx)),
-                        ("demands and matches", lambda: _seed_demands(session, ctx, settings)),
-                        ("conversations", lambda: _seed_conversations(session, ctx)),
-                        ("notifications", lambda: _seed_notification_noise(session, ctx, settings)),
-                    ):
+                    for label, phase in pending:
                         mark = stage()
                         await phase()
                         timings.append((label, stage() - mark))
