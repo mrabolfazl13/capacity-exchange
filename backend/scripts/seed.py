@@ -457,6 +457,10 @@ class Ctx:
     live_used: set[uuid.UUID] = field(default_factory=set)
     #: Cancellation and dispute money, kept so the summary can print what was returned.
     refunds: list[dict[str, Any]] = field(default_factory=list)
+    #: Refund bands the clock cannot host a window for right now, with the search that failed.
+    #: A band is never quietly dropped: §9 promises the journeys, not the percentages, but the
+    #: reader of the summary has to be able to see which demonstration the calendar refused.
+    bands_skipped: list[dict[str, Any]] = field(default_factory=list)
 
     def org(self, org_id: uuid.UUID) -> OrgCtx:
         for ctx in self.orgs:
@@ -721,13 +725,8 @@ async def _seed_capacity(session: AsyncSession, orgs: list[OrgCtx]) -> None:
                         # One listing per organization runs a five-minute hold, so the console can
                         # show a reservation that is about to lapse.
                         "hold_minutes": 5 if offer_index % 29 == 4 else 15,
-                        "cancellation_policy": (
-                            [{"hours_before": 48, "refund_pct": 100},
-                             {"hours_before": 24, "refund_pct": 50},
-                             {"hours_before": 0, "refund_pct": 0}]
-                            if offer_index % 5 == 0 else
-                            [{"hours_before": 24, "refund_pct": 100},
-                             {"hours_before": 0, "refund_pct": 0}]),
+                        "cancellation_policy": (POLICY_WIDE if offer_index % 5 == 0
+                                                else POLICY_NARROW),
                         "requires_payment": not free,
                         "commission_rate_bp": 800 if offer_index % 11 == 0 else None,
                         "status": "published",
@@ -837,8 +836,19 @@ LIVE_CONFIRMED = 9
 LIVE_COUPONS = 2
 LIVE_REQUESTS = 4
 LIVE_REQUESTS_ACCEPTED = 2
-LIVE_BAND_CANCELS = 3
 LIVE_HOLD_CANCELS = 2
+#: The two refund policies the catalog alternates between: one listing in five grades a
+#: cancellation at 100/50/0 by hours-before-start, the rest only at 100/0 (§5.6).
+POLICY_WIDE: list[dict[str, int]] = [{"hours_before": 48, "refund_pct": 100},
+                                     {"hours_before": 24, "refund_pct": 50},
+                                     {"hours_before": 0, "refund_pct": 0}]
+POLICY_NARROW: list[dict[str, int]] = [{"hours_before": 24, "refund_pct": 100},
+                                       {"hours_before": 0, "refund_pct": 0}]
+#: (refund percentage to demonstrate, first hour searched, last hour searched) for the graded
+#: cancellations. The ranges are the two seeded policies' own bands, so the search covers every
+#: window that can grade that way: `wide` refunds 100% from 48 hours out, 50% between 24 and 48,
+#: and nothing inside 24; `narrow` refunds 100% from 24.
+REFUND_BANDS = ((100, 48, 96), (50, 24, 48), (0, 4, 20))
 EXPIRY_COUNT = 2
 DISPUTE_COUNT = 6
 CLOSED_DEMANDS = 3
@@ -962,33 +972,39 @@ def _clock_window(now: datetime, offers: list[Offer], *, min_hours: int, max_hou
     A refund band cannot be demonstrated from a listing's tidy 09:00 slot: the policy reads the
     distance from `now`. Quantity-counted listings are the pool because they carry no minimum
     duration, so a two-hour window is legal on any of them.
+
+    Every whole hour between `min_hours` and `max_hours` ahead is tried, nearest first, against
+    every unused listing that serves it. The first version tried one snapped hour per offset, so a
+    Friday-afternoon start judged every Saturday slot by the hour it had snapped to rather than by
+    the hours on the calendar, and reported a refund band as unreachable while the listings still
+    served it.
     """
-    for offset in range(min_hours, max_hours + 1):
-        target = now + timedelta(hours=offset)
-        if target.weekday() == 6:
-            continue
-        hour = min(max(target.hour, 1), 23 - hours_long)
-        start = datetime.combine(target.date(), dtime(hour, 0), tzinfo=timezone.utc)
-        end = start + timedelta(hours=hours_long)
-        hours_before = (start - now).total_seconds() / 3600
-        if not min_hours <= hours_before <= max_hours:
-            continue
-        for offer in offers:
-            if offer.id in used:
-                continue
-            if not _fits(STYLE[offer.meta["category_key"]], start, end):
-                continue
-            # The snap to a whole hour can pull the start closer than the offset suggested, and
-            # the shipped validator grades the lead time on the snapped value.
-            if (start - now).total_seconds() / 60 < offer.min_lead_time_minutes:
-                continue
-            if want_pct is not None and booking_svc.refund_pct_for(
-                    offer.cancellation_policy, hours_before) != want_pct:
-                continue
-            used.add(offer.id)
-            return offer, start, end
+    low = now + timedelta(hours=min_hours)
+    start = low.replace(minute=0, second=0, microsecond=0)
+    if start < low:
+        start += timedelta(hours=1)
+    high = (now + timedelta(hours=max_hours)).replace(minute=0, second=0, microsecond=0)
+    while start <= high:
+        # Sunday has no published rule to book against, and a window must sit inside one day.
+        if start.weekday() != 6 and start.hour <= 23 - hours_long:
+            end = start + timedelta(hours=hours_long)
+            hours_before = (start - now).total_seconds() / 3600
+            for offer in offers:
+                if offer.id in used:
+                    continue
+                if not _fits(STYLE[offer.meta["category_key"]], start, end):
+                    continue
+                # The shipped validator grades the lead time on the window that is actually booked.
+                if (start - now).total_seconds() / 60 < offer.min_lead_time_minutes:
+                    continue
+                if want_pct is not None and booking_svc.refund_pct_for(
+                        offer.cancellation_policy, hours_before) != want_pct:
+                    continue
+                used.add(offer.id)
+                return offer, start, end
+        start += timedelta(hours=1)
     raise RuntimeError(
-        f"no listing serves a window {min_hours}-{max_hours} hours out from {now:%H:%M} UTC "
+        f"no listing serves a window {min_hours}-{max_hours} hours out from {now:%a %H:%M} UTC "
         f"that refunds {want_pct}% (pool={len(offers)}, already spent={len(used)})")
 
 
@@ -1004,7 +1020,7 @@ def _late_window(now: datetime, offers: list[Offer], used: set[uuid.UUID],
     day = now.date()
     for _ in range(8):
         if day.weekday() != 6:
-            for hour in range(23 - hours_long, 0, -1):
+            for hour in range(23 - hours_long, -1, -1):
                 start = datetime.combine(day, dtime(hour, 0), tzinfo=timezone.utc)
                 end = start + timedelta(hours=hours_long)
                 if end > now:
@@ -1490,23 +1506,39 @@ async def _late_cancellation(session: AsyncSession, ctx: Ctx, settings: Settings
 
 async def _seed_live_cancellations(session: AsyncSession, ctx: Ctx,
                                   settings: Settings) -> int:
-    """Five cancellations: three graded by the refund bands, two holds that never became money."""
+    """Cancellations the policy graded at each refund band, plus the holds that never became money.
+
+    A band the calendar cannot host is recorded in `ctx.bands_skipped` instead of aborting the
+    seed: the wide policy grades 50% only between 24 and 48 hours, and from Friday 21:37 until
+    Saturday 00:00 every remaining Saturday window starts inside 24 hours while Monday starts past
+    48 - 9 of the 504 starting clocks measured against the shipped catalog. §9 promises the
+    journeys, not the percentages, so a missing grade is reported; a dataset with no graded refund
+    at all is a real failure and still raises.
+    """
     now = utcnow()
-    bands = ((100, 60, 96), (50, 28, 40), (0, 4, 12))
-    for index, (want_pct, low, high) in enumerate(bands):
+    written = 0
+    graded = 0
+    for index, (want_pct, low, high) in enumerate(REFUND_BANDS):
         customer = ctx.customers[(index * 43 + 17) % len(ctx.customers)]
         try:
             offer, start, end = _clock_window(now, ctx.clock_friendly, min_hours=low,
                                              max_hours=high, used=ctx.live_used,
                                              want_pct=want_pct)
-        except RuntimeError:
-            if want_pct != 0:
-                raise
+        except RuntimeError as failure:
+            if want_pct:
+                ctx.bands_skipped.append({"refund_pct": want_pct, "searched": f"{low}-{high}h",
+                                          "why": str(failure)})
+                continue
             # The 0% band needs a window less than 24 hours away, and between Saturday afternoon
             # and Monday morning the Monday..Saturday rules leave no such window bookable. The
             # same grade still has a real path: a session that closed hours ago.
-            offer, start, end = _late_window(
-                now, [o for o in ctx.clock_friendly if o.requires_payment], ctx.live_used)
+            try:
+                offer, start, end = _late_window(
+                    now, [o for o in ctx.clock_friendly if o.requires_payment], ctx.live_used)
+            except RuntimeError:
+                ctx.bands_skipped.append({"refund_pct": 0, "searched": f"{low}-{high}h",
+                                          "why": str(failure)})
+                continue
             order_number = await _late_cancellation(session, ctx, settings, offer, start, end,
                                                    customer, index)
             ctx.refunds.append({"path": "cancellation after a closed window", "cents": 0,
@@ -1514,6 +1546,7 @@ async def _seed_live_cancellations(session: AsyncSession, ctx: Ctx,
                                 "hours_before_start": round(
                                     (start - now).total_seconds() / 3600, 1),
                                 "order_number": order_number})
+            written += 1
             continue
         booking = await _held(session, offer, start, end, _quantity_for(offer, index), customer,
                              phase="cancelled", index=index)
@@ -1526,6 +1559,11 @@ async def _seed_live_cancellations(session: AsyncSession, ctx: Ctx,
         ctx.refunds.append({"path": "cancellation policy", "cents": refunded,
                             "refund_pct": want_pct, "hours_before_start": hours_before,
                             "order_number": trip.order.number if trip.order else None})
+        written += 1
+        graded += 1
+    if not graded:
+        raise RuntimeError(f"no refund band above 0% could be demonstrated at {now:%a %H:%M} UTC: "
+                           f"{[b['why'] for b in ctx.bands_skipped]}")
     for index in range(LIVE_HOLD_CANCELS):
         # A hold has no order yet, so cancelling it frees capacity and returns nothing (§5.6).
         offer = ctx.instant[(index * 23 + 9) % len(ctx.instant)]
@@ -1542,7 +1580,8 @@ async def _seed_live_cancellations(session: AsyncSession, ctx: Ctx,
         ctx.refunds.append({"path": "hold release", "cents": refunded, "refund_pct": 0,
                             "hours_before_start": round((start - now).total_seconds() / 3600, 1),
                             "order_number": None})
-    return LIVE_BAND_CANCELS + LIVE_HOLD_CANCELS
+        written += 1
+    return written
 
 
 async def _seed_live_expiry(session: AsyncSession, ctx: Ctx) -> int:
@@ -1953,6 +1992,7 @@ async def _summary(session: AsyncSession, ctx: Ctx) -> dict[str, Any]:
         "refunded_cents": int(money[1]),
         "refusals": len(ctx.refusals),
         "refund_paths": ctx.refunds,
+        "bands_skipped": ctx.bands_skipped,
     }
 
 
@@ -2230,6 +2270,9 @@ async def run(*, verify: bool) -> None:
     for entry in summary["refund_paths"]:
         print(f"  refund: {entry['path']:<24} {entry['cents']:>8} cents"
               f"  order={entry.get('order_number')}")
+    for band in summary["bands_skipped"]:
+        print(f"  band skipped: {band['refund_pct']:>3}% over {band['searched']:<8} "
+              f"{band['why']}")
     for refusal in ctx.refusals:
         print(f"  refused: {refusal['proof']:<22} {refusal['error']}")
     if elapsed >= 60:
