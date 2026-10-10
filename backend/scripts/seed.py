@@ -987,8 +987,35 @@ def _clock_window(now: datetime, offers: list[Offer], *, min_hours: int, max_hou
                 continue
             used.add(offer.id)
             return offer, start, end
-    raise RuntimeError(f"no listing serves a window {min_hours}-{max_hours} hours out "
-                       f"that refunds {want_pct}%")
+    raise RuntimeError(
+        f"no listing serves a window {min_hours}-{max_hours} hours out from {now:%H:%M} UTC "
+        f"that refunds {want_pct}% (pool={len(offers)}, already spent={len(used)})")
+
+
+def _late_window(now: datetime, offers: list[Offer], used: set[uuid.UUID],
+                 *, hours_long: int = 2) -> tuple[Offer, datetime, datetime]:
+    """A window that has already been and gone, newest first.
+
+    The seeded rules run Monday..Saturday, so from Saturday afternoon until Monday morning every
+    bookable window sits more than 24 hours ahead and no `now`-graded 0% cancellation can be
+    placed. A session that closed a few hours ago can: it is the same shape the history journeys
+    write, and the policy grades it 0% because the distance from `now` clears no band (§5.6).
+    """
+    day = now.date()
+    for _ in range(8):
+        if day.weekday() != 6:
+            for hour in range(23 - hours_long, 0, -1):
+                start = datetime.combine(day, dtime(hour, 0), tzinfo=timezone.utc)
+                end = start + timedelta(hours=hours_long)
+                if end > now:
+                    continue
+                for offer in offers:
+                    if offer.id in used or not _fits(STYLE[offer.meta["category_key"]], start, end):
+                        continue
+                    used.add(offer.id)
+                    return offer, start, end
+        day = day - timedelta(days=1)
+    raise RuntimeError("no listing has a completed window to cancel late against")
 
 
 def _span_window(now: datetime, offers: list[Offer],
@@ -1421,15 +1448,73 @@ async def _seed_live_running(session: AsyncSession, ctx: Ctx, settings: Settings
     return RUNNING_COUNT
 
 
+async def _late_cancellation(session: AsyncSession, ctx: Ctx, settings: Settings,
+                             offer: Offer, start: datetime, end: datetime,
+                             customer: User, index: int) -> str | None:
+    """A paid booking cancelled after its window closed, written the only way a past window can be.
+
+    The API refuses a window that has already begun (§5.4), so the row is written and aged exactly
+    as the history journeys are; the refund then stays 0 because a negative distance from `now`
+    clears no band of the offer's policy (§5.6). The deterministic id keeps a repair run from
+    stacking a second late cancellation on top of the first.
+    """
+    existing = await session.get(Booking, sid("booking", "late", index))
+    if existing is not None:
+        order = await session.scalar(select(Order).where(Order.booking_id == existing.id))
+        return order.number if order else None
+    definition = offer._definition  # type: ignore[attr-defined]
+    quantity = _quantity_for(offer, index)
+    unit_cents, total_cents = booking_svc.price_cents(offer, definition, quantity, start, end)
+    booked_at = start - timedelta(days=2)
+    booking = Booking(
+        id=sid("booking", "late", index), offer_id=offer.id, definition_id=definition.id,
+        org_id=offer.org_id, customer_id=customer.id, created_by_user_id=customer.id,
+        status="confirmed", payment_status="unpaid", window_start=start, window_end=end,
+        quantity=quantity, unit_amount_cents=unit_cents, currency=offer.currency,
+        total_cents=total_cents, confirmed_at=booked_at,
+        meta=seed_meta(phase="cancelled", category=STYLE[offer.meta["category_key"]]["word"]))
+    session.add(booking)
+    session.add(BookingStatusEvent(booking_id=booking.id, from_status=None, to_status="confirmed",
+                                   actor_user_id=customer.id, reason="booking created",
+                                   meta={"quantity": quantity}))
+    await session.flush()
+    trip = Trip(booking=booking, offer=offer, customer=customer, org=ctx.org(offer.org_id),
+                booked_at=booked_at, finished_at=end + timedelta(minutes=45))
+    await _pay(session, trip, settings)
+    await booking_svc.cancel(session, booking, actor_user_id=customer.id,
+                             reason="Late cancellation: reported after the session had closed.")
+    await _age_trip(session, trip)
+    _stamp(booking, phase="cancelled", index=index, category=offer.meta["category_key"])
+    return trip.order.number if trip.order else None
+
+
 async def _seed_live_cancellations(session: AsyncSession, ctx: Ctx,
                                   settings: Settings) -> int:
     """Five cancellations: three graded by the refund bands, two holds that never became money."""
     now = utcnow()
     bands = ((100, 60, 96), (50, 28, 40), (0, 4, 12))
     for index, (want_pct, low, high) in enumerate(bands):
-        offer, start, end = _clock_window(now, ctx.clock_friendly, min_hours=low, max_hours=high,
-                                         used=ctx.live_used, want_pct=want_pct)
         customer = ctx.customers[(index * 43 + 17) % len(ctx.customers)]
+        try:
+            offer, start, end = _clock_window(now, ctx.clock_friendly, min_hours=low,
+                                             max_hours=high, used=ctx.live_used,
+                                             want_pct=want_pct)
+        except RuntimeError:
+            if want_pct != 0:
+                raise
+            # The 0% band needs a window less than 24 hours away, and between Saturday afternoon
+            # and Monday morning the Monday..Saturday rules leave no such window bookable. The
+            # same grade still has a real path: a session that closed hours ago.
+            offer, start, end = _late_window(
+                now, [o for o in ctx.clock_friendly if o.requires_payment], ctx.live_used)
+            order_number = await _late_cancellation(session, ctx, settings, offer, start, end,
+                                                   customer, index)
+            ctx.refunds.append({"path": "cancellation after a closed window", "cents": 0,
+                                "refund_pct": 0,
+                                "hours_before_start": round(
+                                    (start - now).total_seconds() / 3600, 1),
+                                "order_number": order_number})
+            continue
         booking = await _held(session, offer, start, end, _quantity_for(offer, index), customer,
                              phase="cancelled", index=index)
         trip = _trip(booking, offer, customer, ctx)
