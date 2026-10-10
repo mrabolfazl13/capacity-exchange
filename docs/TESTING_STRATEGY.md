@@ -26,7 +26,7 @@ Real PostgreSQL 16.2 through pgserver (embedded), schema created with `alembic u
 sqlite-backed suite would pass while production double-books. Run:
 
 ```
-bash infrastructure/scripts/test_backend.sh          # 97 passed
+bash infrastructure/scripts/test_backend.sh          # 403 passed in 3m22s
 ```
 
 `REDIS_URL` is forced empty by the script: the suite must be green without Redis, which is also
@@ -70,7 +70,7 @@ python tests/e2e/concurrency_race.py   --base http://127.0.0.1:8000/api/v1 --att
 python tests/security/matrix.py        --base http://127.0.0.1:8000/api/v1 --rate-limit-per-min 120
 ```
 
-| Harness | Measured (re-run 2026-10-07) |
+| Harness | Measured (re-run 2026-10-10, against a dataset re-seeded the same hour) |
 | --- | --- |
 | `journey.py` | 39/39 checks — register → provider setup → publish → search → hold → confirm → pay → fulfillment → review, plus hold expiry, cancellation, cross-tenant denial |
 | `concurrency_race.py` | PASS — capacity 3 (`--attempters 12`): 3 holds granted, 9 refused `no_availability`, server-side exactly 3 active bookings totalling 3 units |
@@ -92,6 +92,36 @@ Harness rules learned the hard way and now enforced in the scripts themselves:
 - the rate-limit burst runs **last** (an emptied bucket would corrupt every earlier request) and
   sends `per_min + 15` so it genuinely exceeds the documented limit;
 - a check that could not run is reported as a failure, never skipped.
+
+#### The demo seed and the clock
+
+`backend/scripts/seed.py` pins part of the dataset to the wall clock, because a refund is graded by
+hours-before-start (CONTRACTS §5.6) and the demo has to show each band. That makes the seed a
+function of the hour it runs at, and the live gate starts at whatever hour the runner woke up in —
+which is how one SHA came out green and the next red on identical code.
+
+What keeps it honest is measured, not assumed:
+
+- `_clock_window` enumerates every whole hour between a band's floor and ceiling and tries every
+  unspent listing on it. `backend/tests/test_seed_windows_are_clock_independent.py` walks all
+  7 × 24 starting hours and compares the search with an independent oracle over the same space; the
+  two agree at every clock, so a band is reported unreachable only when no legal window exists.
+- A band the calendar genuinely refuses is printed instead of hidden. The wide policy grades 50%
+  only between 24 and 48 hours, and from Friday 21:37 until Saturday 00:00 the rest of Saturday
+  starts inside 24 hours while Monday starts past 48 — 9 of the 504 clocks checked. The seed writes
+  the other bands, prints `band skipped: 50% over 24-48h ...` with the search that failed, and
+  still raises when no band above 0% can be demonstrated at all.
+- The seed can run against a database the job runner has already used. A seeded hold lapses after
+  its own `hold_minutes`, so "some seeded booking exists" is not evidence the dataset is complete:
+  each phase now declares the booking statuses it is responsible for, and a re-run re-mints only
+  the shape that decayed (measured: six holds in 0.06s, forty past journeys left intact).
+
+Verified 2026-10-10 on a fresh migrated schema whose clock — the seed's and every service's — was
+moved to Friday 22:30 UTC: 9.5s, all eight §5.5 statuses, review average 4.2, 7160 cents refunded
+through the shipped services, the 50% band reported as skipped rather than fatal. On the machine's
+own clock the same seed writes 100%, 50% and closed-window 0% cancellations and `--verify` reads
+the dataset back over the shipped routes, after which journey 39/39, the race and the security
+matrix were re-run against it.
 
 ## Mandatory booking behaviours
 

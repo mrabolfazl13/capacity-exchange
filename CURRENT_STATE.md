@@ -1,6 +1,6 @@
 # Current State
 
-Last sync: 2026-10-07 (integration gate re-run green end to end; docs and handoffs below).
+Last sync: 2026-10-10 (seed made clock-independent and re-runnable; live gate layers re-run green).
 
 ## Status
 Implementation started. Shared contracts authored (docs/CONTRACTS.md); parallel
@@ -20,10 +20,15 @@ pgserver (embedded PostgreSQL), jobs run via CELERY_MODE=local fallback.
 - [x] Docker topology + docker-free dev scripts (docker/, infrastructure/scripts/)
 - [x] Backend core + domains: identity/RBAC, capacity/availability, marketplace, booking
       engine, orders/payments, reviews/disputes, dashboards, admin, seed. Evidence:
-      `pytest -q` = 97 passed against pgserver PostgreSQL 16.2 (schema via `alembic upgrade
-      head`, never SQLite), re-run 2026-10-07 with the `/ai/*` routes and the commit-ordering
-      guard mounted.
+      `pytest -q` = 403 passed against pgserver PostgreSQL 16.2 (schema via `alembic upgrade
+      head`, never SQLite), re-run 2026-10-10 with the `/ai/*` routes, the commit-ordering
+      guard and the seed's clock sweep mounted.
 - [x] Live e2e harness (tests/e2e/journey.py, tests/e2e/concurrency_race.py)
+- [x] Demo seed that survives the clock it runs at: the refund-band window search enumerates
+      every hour in the band (proved complete against an independent scan at all 7 × 24
+      starting hours), a grade the calendar refuses is printed as `band skipped`, and a
+      re-run against a database the job runner already decayed re-mints only what decayed.
+      Details and numbers: docs/TESTING_STRATEGY.md, layer 4.
 - [x] AI/data surface: `ai/capacity_ai` algorithms + five `/ai/*` routes. Deterministic and
       offline (no model, no network, no writes); the optional LLM enhancement is not
       implemented for v1 and no caller branches on one — docs/AI_SPEC.md states this per
@@ -31,8 +36,8 @@ pgserver (embedded PostgreSQL), jobs run via CELERY_MODE=local fallback.
 - [x] Desktop assistant surface wired: search parses prose, the capacity wizard starts from a
       description, and pricing shows the market band beside the provider's own field. All three
       are advisory — no panel can prefill what it did not read.
-- [x] Integration gate run against a live backend on pgserver PostgreSQL 16.2, 2026-10-07:
-      `pytest` 97 (backend) + 31 (ai) + 13 (flutter) + 42 (vitest); live journey 39/39;
+- [x] Integration gate run against a live backend on pgserver PostgreSQL 16.2, re-run 2026-10-10:
+      `pytest` 403 (backend) + 31 (ai) + 13 (flutter) + 42 (vitest); live journey 39/39;
       concurrency race PASS (capacity 3, 12 attempters → exactly 3 grants, 3 units server-side);
       security matrix 33/33. Commands and the honest gaps are in docs/TESTING_STRATEGY.md.
 
@@ -40,8 +45,9 @@ pgserver (embedded PostgreSQL), jobs run via CELERY_MODE=local fallback.
 - [ ] Desktop Windows installer (Tauri build) — code and `npm run build` are green; the
       release binary is a CI job (see Blocked)
 - [ ] Mobile Android signed release APK — same reason
-- [ ] CI/CD build & release recovery — `.github/workflows/` is authored but still untracked
-      until the gate below validates it
+- [ ] CI/CD build & release recovery — the workflows are tracked and the layers that found the
+      bugs run in CI; what is left is a green live gate on the seed fixes, then the `v1.0.0` tag
+      and the release per docs/RELEASE.md
 - [ ] Admin surface: the platform-operations APIs are tested; no client screen exists yet
 
 ## Blocked
@@ -75,6 +81,28 @@ phase per the CI/CD protocol: commit `.github/workflows/`, let CI produce the tw
 box cannot (Windows installer, signed APK), and cut the release from a run that fails honestly —
 no `|| true`, no `continue-on-error`, no deleted feature to make a build pass. After that:
 performance (phase 14) and the admin screen (phase 12) are the only phases left with no evidence.
+
+## Handoff — seed clock independence (backend) (2026-10-10)
+- Files changed: `backend/scripts/seed.py` (`_clock_window` enumerates the whole hour range,
+  `_late_window`/`_late_cancellation` for the closed-window 0% grade, `POLICY_WIDE`/
+  `POLICY_NARROW`/`REFUND_BANDS` constants, `Ctx.bands_skipped`, per-phase status table so a
+  re-run re-mints only what decayed, catalog and review-average reads scoped to seeded rows),
+  `backend/tests/test_seed_windows_are_clock_independent.py` (new), `docs/TESTING_STRATEGY.md`,
+  `CURRENT_STATE.md`.
+- Contracts changed: none. `docs/CONTRACTS.md` §9 promises journeys, statuses and idempotency,
+  and the seed still meets it; the refund-band demonstration is now reported when the calendar
+  refuses it instead of aborting the run.
+- Migrations added: none.
+- Tests run: backend `pytest -q` → 403 passed (306 of them the new clock sweep, 1m32s); the
+  search was checked against an independent oracle at 504 starting clocks; `seed.py --reset
+  --verify` on a fresh schema, plus a fresh schema whose whole-stack clock was moved to Friday
+  22:30 UTC (9.5s, eight §5.5 statuses, review average 4.2, 7160 cents refunded); live journey
+  39/39, race 3 grants of 12 attempters, security matrix 33/33 over HTTP afterwards.
+- Known issues: the 50% band cannot be demonstrated between Friday 21:37 and Saturday 00:00
+  (9 of 504 clocks) — the rest of Saturday starts inside 24 hours and Monday past 48, so no
+  window grades that way. The seed prints `band skipped: 50% over 24-48h ...` rather than
+  faking it, and still raises if no band above 0% can be shown.
+- Next dependent task: #11 — a green live gate on this SHA, then the `v1.0.0` tag.
 
 ## Handoff — Desktop assistant surface (2026-10-07)
 - Files changed: `desktop/src/features/assistant/{logic.ts,hooks.ts,components/AssistantCards.tsx}`,
