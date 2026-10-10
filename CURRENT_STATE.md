@@ -1,6 +1,7 @@
 # Current State
 
-Last sync: 2026-10-10 (seed made clock-independent and re-runnable; live gate layers re-run green).
+Last sync: 2026-10-11 (admin surface complete at seven screens, performance layer re-measured on
+the release SHA, release runbook now records what the 1.0.0 tag does and does not ship).
 
 ## Status
 Implementation started. Shared contracts authored (docs/CONTRACTS.md); parallel

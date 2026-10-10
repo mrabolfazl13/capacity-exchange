@@ -46,6 +46,23 @@ each platform demands its own:
 A `workflow_dispatch` run produces the same artifacts without publishing a release, which is how
 a build is checked before a tag is spent.
 
+## 1.0.0 — what this tag actually is (2026-10-11)
+
+Steps 1 and 3 ran; step 2 did not, and that decides what this release contains.
+
+- Green on the release SHA in CI: `backend` (migrations + pytest on postgres:16), `desktop`
+  (web build + vitest), `ai`, `live gate` (journey + race + security matrix over HTTP), `mobile`.
+- Green on the release box, where CI has no PostgreSQL 16 with a 40,000-booking corpus: the
+  performance gate, re-run end to end twice on the release candidate with 8 of 8 p95 inside budget.
+  The tagged commit changes documentation only — no route, service or query it measures.
+- **`release.yml` stops at `prepare`**, because `API_BASE_URL` is unset and none of the four
+  `ANDROID_KEYSTORE_*` secrets exist. It fails rather than substituting a guessed API host or a
+  debug-signed APK, so **this release ships source plus the GitHub release notes and no binaries** —
+  no Windows installer, no signed APK, no app bundle. Those five values are the entire difference
+  between this section and a binary release; setting them and re-running the workflow on this tag
+  is all that remains.
+- The published release notes state the same thing, listing both what ships and what does not.
+
 ## Verifying the artifacts by hand
 
 An installer that launches is not evidence; the quality bar requires the action to reach the API
