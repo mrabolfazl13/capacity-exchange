@@ -191,6 +191,44 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  desktop-tauri:
+    name: desktop native (tauri linux compile check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - name: system dependencies (webkit2gtk, gtk, appindicator)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - name: install desktop dependencies
+        working-directory: desktop
+        run: npm ci --no-audit --no-fund
+      # The product ships a Windows installer, and that installer is cut in release.yml against a
+      # real API host. What no workflow did until now was compile the Rust shell at all: the web
+      # job only proves the bundle. This job ships nothing — it proves `src-tauri` still builds in
+      # release mode and that tauri.conf.json parses, which is the part a broken Cargo.toml or a
+      # bad capability file would break. It consumes no release input, so it needs none.
+      - name: release build, no bundle target
+        working-directory: desktop
+        run: npm run tauri build -- --no-bundle
+      - name: verify the binary
+        working-directory: desktop
+        run: |
+          set -euo pipefail
+          test -s src-tauri/target/release/capacity-exchange-desktop
+          file src-tauri/target/release/capacity-exchange-desktop
+
   mobile-android:
     name: mobile (flutter analyze + test + apk)
     runs-on: ubuntu-latest
