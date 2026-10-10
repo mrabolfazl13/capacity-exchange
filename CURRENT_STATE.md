@@ -41,10 +41,11 @@ pgserver (embedded PostgreSQL), jobs run via CELERY_MODE=local fallback.
       concurrency race PASS (capacity 3, 12 attempters → exactly 3 grants, 3 units server-side);
       security matrix 33/33. Commands and the honest gaps are in docs/TESTING_STRATEGY.md.
 
-- [x] Admin surface in the desktop client: six platform-operations screens (users, providers,
-      disputes, audit log, categories, promotions) over the tested `/admin/*` APIs, gated by role
-      in the route and in the sidebar. Proven per role in a real browser against a live server,
-      and the gate itself is pinned by `desktop/src/__tests__/admin-access.test.tsx`.
+- [x] Admin surface in the desktop client: seven platform-operations screens (analytics, users,
+      providers, disputes, audit log, categories, promotions) over the tested `/admin/*` and
+      `/dashboard/admin` APIs, gated by role in the route and in the sidebar. Proven per role in a
+      real browser against a live server, and the gate itself is pinned by
+      `desktop/src/__tests__/admin-access.test.tsx`.
 - [x] Performance layer: `bash infrastructure/scripts/perf_gate.sh` — 8 measured p95s inside
       budget on a 40,000-booking corpus, with booking exactness asserted at volume and an
       `EXPLAIN (ANALYZE, BUFFERS)` printed for every measurement.
@@ -109,17 +110,35 @@ deleted feature to make a build pass.
   runner itself works and no endpoint depends on it.
 - Next dependent task: phase 12, the admin surface in `desktop/`.
 
+## Handoff — platform overview screen (desktop) (2026-10-11)
+- Files changed: `desktop/src/features/admin/pages/AdminAnalyticsPage.tsx` (new), `desktop/src/App.tsx`
+  (route), `desktop/src/components/AppLayout.tsx` (sidebar link), `desktop/src/i18n/locales/{en,fa}.ts`,
+  `desktop/src/__tests__/admin-access.test.tsx` (the link list the gate must show), and the phase-12
+  records in `docs/TESTING_STRATEGY.md`, `IMPLEMENTATION_PLAN.md`, `CURRENT_STATE.md`.
+- APIs/contracts changed: none. `/dashboard/admin` and `GET /admin/analytics` were already specified
+  in `docs/CONTRACTS.md` §8 and already tested in `backend/tests/`; this screen consumes them.
+- Migrations added: none.
+- Tests run: `npx vitest run` → 51 passed, `tsc -b` exit 0, `npm run build` green. In a real browser
+  against the seeded backend an admin renders 11 cards and 39 table rows with live figures, support
+  is redirected and does not see the link, a customer is redirected; changing the window moved the
+  window-owned numbers (100 bookings created → 15, $18,645.80 → $5,193.00) while the all-time cards
+  stayed, which is what separates a live read from a painted constant.
+- Known issues: the analytics DTO carries no currency, so its money is rendered on the axis the
+  platform totals report — correct while the platform settles in one currency, and the first thing
+  to revisit if that stops being true. The browser pass is a throwaway driver, as recorded in §4b.
+- Next dependent task: #11 — the release.
+
 ## Handoff — admin surface, proven per role (desktop/QA) (2026-10-11)
 - Files changed: `desktop/src/__tests__/admin-access.test.tsx` (new, 9 tests), `README.md`,
   `IMPLEMENTATION_PLAN.md` (phase 12 [x], phase 7 evidence count), `docs/TESTING_STRATEGY.md`
-  (layer 3 count and the new §4b browser record), `CURRENT_STATE.md`. The six screens themselves
+  (layer 3 count and the new §4b browser record), `CURRENT_STATE.md`. The screens themselves
   (`desktop/src/features/admin/pages/*.tsx`), the `/admin/*` client in `desktop/src/api/endpoints.ts`,
   the `RequireRole` gate and the role-filtered sidebar were already committed; this task proved them
   rather than adding to them.
 - APIs/contracts changed: none. No route, DTO or role definition moved; the backend was not touched.
 - Migrations added: none.
 - Tests run: `npx vitest run` → 51 passed (42 before: 9 new cases pin the gate — a platform admin
-  reaches all six screens, a support account reaches the dispute queue and nothing else, a customer
+  reaches all seven screens, a support account reaches the dispute queue and nothing else, a customer
   reaches none, and the sidebar offers exactly the links the guard allows). `tsc -b` exit 0. Then
   every screen was opened in a real browser against the live API on the seeded demo database and the
   rows it rendered were counted per role (§4b of `docs/TESTING_STRATEGY.md`).

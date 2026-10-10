@@ -62,7 +62,7 @@ watch mode — use `npx vitest run` in any scripted gate.
 Nine of them pin the gate in front of the moderation surface instead of the screens: a
 `platform_admin` reaches a platform-only route, a `support` session is redirected off it and
 still reaches the dispute queue, an ordinary account reaches neither, and the sidebar renders the
-admin group as six links for a platform admin, exactly `Disputes` for support, and nothing for a
+admin group as seven links for a platform admin, exactly `Disputes` for support, and nothing for a
 customer. That is the part of phase 12 a scripted CI run can actually prove; the screens rendering
 real rows is proven one layer down, in a browser.
 
@@ -132,14 +132,23 @@ matrix were re-run against it.
 
 ### 4b. Admin surface, driven in a real browser (2026-10-11)
 
-Phase 12 is moderation, and moderation is only real if a person can click it. The six admin
+Phase 12 is moderation, and moderation is only real if a person can click it. The seven admin
 screens were opened in headless Edge against the dev server and the seeded backend, per role:
 
-| Session | `/admin/users` | `/admin/providers` | `/admin/disputes` | `/admin/audit-logs` | `/admin/categories` | `/admin/promotions` |
-| --- | --- | --- | --- | --- | --- | --- |
-| platform admin | 20 rows | 9 rows | 1 card, full context | 30 of 692 rows | 12 rows | 1 card |
-| support | redirected to `/dashboard` | redirected | renders | redirected | redirected | redirected |
-| customer | redirected | redirected | redirected | redirected | redirected | redirected |
+| Session | `/admin/analytics` | `/admin/users` | `/admin/providers` | `/admin/disputes` | `/admin/audit-logs` | `/admin/categories` | `/admin/promotions` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| platform admin | 11 cards, 39 table rows | 20 rows | 9 rows | 1 card, full context | 30 of 692 rows | 12 rows | 1 card |
+| support | redirected to `/dashboard` | redirected to `/dashboard` | redirected | renders | redirected | redirected | redirected |
+| customer | redirected | redirected | redirected | redirected | redirected | redirected | redirected |
+
+Support and customer were signed out through the UI's own control between sessions, not by
+clearing storage: the session is server-side, and the first pass over this table read
+`FIELDS_MISSING` for two roles simply because the previous admin was still logged in. An
+audit that does not sign out proves only that one session can see everything.
+
+The analytics screen was also asked to change: entering a 9-day window moved the figures it
+owns (86 new accounts → 0, 100 bookings created → 15, $18,645.80 → $5,193.00 GMV) while the
+all-time cards stayed put, which is the only way to tell a live read from a painted constant.
 
 The dispute card renders what a decision needs without leaving the screen — service name,
 complainant, org, age, order total, refunded amount, payment and booking status — and the
@@ -252,7 +261,7 @@ check rather than by the suite passing overall:
 - **Flutter integration tests for discovery and booking** — the strategy asks for them; what
   exists is domain logic plus widget-level boot. A device-level journey has not been run.
 - **Desktop page-level rendering in CI** — the 51 tests cover the booking and assistant logic,
-  the envelope handling, i18n and the admin RBAC gate. The six admin screens were rendered against
+  the envelope handling, i18n and the admin RBAC gate. The seven admin screens were rendered against
   a live server in a real browser (see layer 4b), but by a throwaway CDP driver on this box rather
   than a committed harness: no CI run opens a browser, so a regression that only shows up inside a
   page is still caught by hand.
