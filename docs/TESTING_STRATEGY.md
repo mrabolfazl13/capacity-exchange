@@ -254,7 +254,12 @@ check rather than by the suite passing overall:
 
 ## Gate for a release
 
-A release is cut only when layers 1–5 are green in the same run, the migration head is
-single and at head, and every failure above is either fixed or recorded here as not proven.
+A release is cut only when layers 1–4 are green in the same CI run and layer 5 is green on the
+release box in the same SHA's run: CI runs the suites that are machine-independent (algorithms,
+API, live HTTP gate, client tests), while the performance gate stays a local measurement because
+its budgets are this machine's p95s and a hosted runner would compare against the wrong ruler.
+The migration head must be single and at head, and every failure above is either fixed or recorded
+here as not proven. Layer 4b is the exception that is not a gate: it is a browser pass recorded per
+SHA, and the part of it CI can repeat is the layer-3 RBAC suite.
 The pipeline must fail honestly: no `|| true`, no `continue-on-error`, and no build problem
 solved by deleting a feature, screen or native capability.
