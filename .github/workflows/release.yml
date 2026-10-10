@@ -108,7 +108,10 @@ jobs:
 
   tauri-linux:
     name: tauri linux (compile check, no bundle target shipped)
-    needs: prepare
+    # Not `needs: prepare`: a compile check consumes no release input — it bakes in no API host and
+    # ships no artifact. The same check runs on every push in ci.yml (`desktop native`); this job is
+    # what a manual `workflow_dispatch` build check can still prove when the repository has no
+    # release configuration yet. The `release` job below still requires the prepare-gated jobs.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -136,8 +139,6 @@ jobs:
       - name: cargo release build
         working-directory: desktop
         run: npm run tauri build -- --no-bundle
-        env:
-          VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
       - name: verify the binary
         working-directory: desktop
         run: |
