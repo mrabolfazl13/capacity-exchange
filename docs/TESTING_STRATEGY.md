@@ -43,7 +43,7 @@ the response has already left.
 ### 3. Client unit/component layer
 
 ```
-desktop:  npx vitest run                 # 42 passed (13 of them the assistant surface)
+desktop:  npx vitest run                 # 51 passed (13 assistant, 9 the admin RBAC gate)
 mobile:   flutter test                   # 13 passed (8 domain + 5 widget)
 ```
 
@@ -58,6 +58,13 @@ Desktop tests assert the *honesty* rules of the advisory surfaces: a parsed sent
 write the filters it actually read, a listing draft may only merge into boxes the provider left
 empty, and a figure is rendered with the axis it was measured on. `npm test` opens vitest in
 watch mode — use `npx vitest run` in any scripted gate.
+
+Nine of them pin the gate in front of the moderation surface instead of the screens: a
+`platform_admin` reaches a platform-only route, a `support` session is redirected off it and
+still reaches the dispute queue, an ordinary account reaches neither, and the sidebar renders the
+admin group as six links for a platform admin, exactly `Disputes` for support, and nothing for a
+customer. That is the part of phase 12 a scripted CI run can actually prove; the screens rendering
+real rows is proven one layer down, in a browser.
 
 ### 4. Live integration gate (the shipped path)
 
@@ -123,6 +130,92 @@ own clock the same seed writes 100%, 50% and closed-window 0% cancellations and 
 the dataset back over the shipped routes, after which journey 39/39, the race and the security
 matrix were re-run against it.
 
+### 4b. Admin surface, driven in a real browser (2026-10-11)
+
+Phase 12 is moderation, and moderation is only real if a person can click it. The six admin
+screens were opened in headless Edge against the dev server and the seeded backend, per role:
+
+| Session | `/admin/users` | `/admin/providers` | `/admin/disputes` | `/admin/audit-logs` | `/admin/categories` | `/admin/promotions` |
+| --- | --- | --- | --- | --- | --- | --- |
+| platform admin | 20 rows | 9 rows | 1 card, full context | 30 of 692 rows | 12 rows | 1 card |
+| support | redirected to `/dashboard` | redirected | renders | redirected | redirected | redirected |
+| customer | redirected | redirected | redirected | redirected | redirected | redirected |
+
+The dispute card renders what a decision needs without leaving the screen — service name,
+complainant, org, age, order total, refunded amount, payment and booking status — and the
+promotion card renders code, discount, thresholds, usage 3/500 and window.
+
+Two reversible writes were pushed through the screens rather than the API, to prove the mutation
+wiring and the refetch after it: granting `provider` to `customer01@example.test` moved the row
+from `Customer` to `Provider ×`, and revoking moved it back; retiring the `equipment` category
+swapped its `Retire` control for `Restore`, and restoring it swapped back. The database was read
+back afterwards and holds exactly what the seed wrote — one `customer` role on that account,
+`equipment` active — so the proof left no residue in the demo dataset.
+
+Unlike the other layers this one was driven by a throwaway CDP script on the development box, so it
+is evidence for this SHA rather than a check CI can repeat. The part CI *can* repeat — which role
+reaches which screen — is committed as the nine `admin-access.test.tsx` cases in layer 3.
+
+### 5. Performance layer — `tests/perf/`
+
+Closes the four measurements this document used to describe as owed: marketplace search,
+availability queries, booking confirmation under contention, dashboard aggregation. Run:
+
+```
+bash infrastructure/scripts/perf_gate.sh              # scale 1.0, 60 samples per measurement
+PERF_SCALE=0.15 bash infrastructure/scripts/perf_gate.sh   # quick pass while iterating
+```
+
+The gate needs the local PostgreSQL cluster up (`infrastructure/scripts/dev_up.sh`); it says so
+instead of starting one. It builds its own database, `capacity_perf`, so a run cannot be confused
+with seeded demo data, and tears nothing else down.
+
+**Fixture.** `tests/perf/volume.py` writes a corpus with `COPY` and real schema validation: 400
+organizations, 1,226 resources, 2,452 definitions and published offers, 14,712 recurring rules,
+3,401 users, 40,000 bookings, 35,260 orders/payments, 23,377 fulfillments, 7,396 reviews, 1,313
+disputes — 86 MB. Bookings are capacity-checked while they are generated, so no hour is ever
+over-subscribed; an availability or contention number measured on an impossible corpus would be
+worth nothing. A fixed RNG seed makes the corpus reproducible, and one org (`perf-heavy-org`) is
+deliberately given 24 resources so the provider dashboard aggregates over real traffic.
+
+**Measured, at scale 1.0, single client on the development box (p50 / p95 / max ms, budget ms):**
+
+| measurement | p50 | p95 | max | budget | verdict |
+| --- | --- | --- | --- | --- | --- |
+| search, filters only | 12 | 20 | 20 | 150 | PASS |
+| search, date window | 640 | 702 | 739 | 1000 | PASS |
+| availability, 7 days | 10 | 11 | 13 | 400 | PASS |
+| availability, 30 days | 18 | 20 | 31 | 1500 | PASS |
+| booking hold under contention (12 parallel, 6 free) | 270 | 307 | 316 | 1500 | PASS |
+| booking confirm under contention (6 conversions) | 134 | 217 | 217 | 2000 | PASS |
+| provider dashboard, 30 days | 161 | 188 | 228 | 1500 | PASS |
+| admin dashboard | 29 | 36 | 46 | 600 | PASS |
+
+Contention is asserted, not just timed: 12 simultaneous holds against a definition with 6 free
+units produced exactly 6 grants and 6 `no_availability` refusals, all 6 converted, the window then
+read as fully committed, and a 13th hold was refused.
+
+**Where the time actually goes.** Each measurement prints `EXPLAIN (ANALYZE, BUFFERS)` for the
+statement the service compiles. The SQL is not the bottleneck anywhere: the search page costs
+3.7 ms, its count 2.3 ms, the candidate page 6.8 ms, a rules read 0.065 ms, the in-lock
+`committed_quantity` aggregate 0.117 ms, and every dashboard statement except one under 2 ms. The
+latency in the table is the request overhead around them — with one exception worth naming: the
+date-window search runs a Python fan-out over up to `CANDIDATE_CAP = 200` candidates
+(`backend/app/services/marketplace.py:search`), and each candidate costs about twelve statements:
+two identity loads for its definition and resource, three reads inside `build_day_plan` (rules,
+overrides, exceptions), and one `committed_quantity` aggregate per expanded window. Two thousand
+four hundred round trips at the measured 0.25–0.3 ms each is the whole 640 ms. That is the first
+place to optimize if this number ever needs to be smaller — bulk-loading the definitions,
+resources and rules for the candidate page instead of per candidate — and it is not optimized now
+because the budget it is measured against is met, and the fix would touch the shared availability
+engine the booking tests depend on. The provider revenue statement does sequential-read 6,650
+booking rows (11.4 ms); acceptable inside a 30-day aggregate, tracked as the second.
+
+**What these numbers are not.** They are a p95 of *this machine* — one client, one process,
+embedded PostgreSQL, no Redis, rate limiter raised out of the way so it cannot be the reason a
+request is slow. They are not a throughput claim, not a capacity plan, and not comparable to a
+hosted deployment. Nothing else in this repository quotes them.
+
 ## Mandatory booking behaviours
 
 The booking engine is where a wrong answer costs money, so each of these is pinned by a named
@@ -136,12 +229,6 @@ check rather than by the suite passing overall:
 | Retry after a timeout | The replay above is the retry path — a client that lost the response can re-send and get the original booking, never a second one |
 | Cancellation | `test_commerce_api.py` cancellation-policy bands + journey step and matrix "customer can cancel own booking" |
 | Invalid state transitions | Six assertions on `invalid_state_transition`: confirming before the provider accepts, cancelling mid-service, a late fulfillment, re-accepting an already-accepted match, editing a closed demand, and reviewing an undelivered booking |
-
-## Planned layer: performance
-
-Not started, and the four measurements it owes are fixed here so the work stays honest:
-marketplace search, availability queries, booking confirmation under contention, and dashboard
-aggregation. Until they exist, no claim about scale is made anywhere in this repository.
 
 ## What is not proven
 
@@ -159,13 +246,15 @@ aggregation. Until they exist, no claim about scale is made anywhere in this rep
   test suite are what actually ran.
 - **Flutter integration tests for discovery and booking** — the strategy asks for them; what
   exists is domain logic plus widget-level boot. A device-level journey has not been run.
-- **Desktop page-level rendering** — the 42 tests cover the booking and assistant logic, the
-  envelope handling and i18n. Navigation and form validation across whole pages are reviewed by
-  hand, which the quality bar explicitly requires in addition to automation.
+- **Desktop page-level rendering in CI** — the 51 tests cover the booking and assistant logic,
+  the envelope handling, i18n and the admin RBAC gate. The six admin screens were rendered against
+  a live server in a real browser (see layer 4b), but by a throwaway CDP driver on this box rather
+  than a committed harness: no CI run opens a browser, so a regression that only shows up inside a
+  page is still caught by hand.
 
 ## Gate for a release
 
-A release is cut only when layers 1–4 are green in the same run, the migration head is
+A release is cut only when layers 1–5 are green in the same run, the migration head is
 single and at head, and every failure above is either fixed or recorded here as not proven.
 The pipeline must fail honestly: no `|| true`, no `continue-on-error`, and no build problem
 solved by deleting a feature, screen or native capability.

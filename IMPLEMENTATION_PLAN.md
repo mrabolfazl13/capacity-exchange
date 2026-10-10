@@ -10,19 +10,19 @@ check, not the intention.
 |---|---|---|---|
 | 0 | Repo, docs, environment, Docker, CI baseline | [~] | dev scripts boot the stack on a box with no Docker; `.github/workflows/` is authored but untracked until the CI gate validates it |
 | 1 | Architecture, contracts, error model, schema | [x] | docs/CONTRACTS.md is the authority every suite asserts against |
-| 2 | Backend core: app, auth, RBAC, migrations, jobs | [x] | 97 backend tests; single alembic head at 0001; local job runner logs five handlers |
+| 2 | Backend core: app, auth, RBAC, migrations, jobs | [x] | 403 backend tests; single alembic head at 0001; local job runner logs five handlers |
 | 3 | Capacity engine: resources, units, availability | [x] | E2E journey steps [2] — draft resource, definition, recurring rule, `/availability/free` windows |
 | 4 | Marketplace: offers, search, filters, detail | [x] | journey step [3] — published offer discovered by q/city/date/quantity filters |
 | 5 | Booking engine: holds, state machine, concurrency | [x] | race: 12 parallel holds against capacity 3 grant exactly 3, and the provider's org view shows 3 holds / 3 units |
 | 6 | Orders and payments: lifecycle, mock provider, refunds | [x] | journey step [4] — order, intent, confirm, booking reads `paid`; cancellation policy bands tested |
-| 7 | Provider experience: wizard, offers, dashboard | [x] | desktop suite (42 tests) plus the live `/ai/*` draft and price band wired into the wizard |
+| 7 | Provider experience: wizard, offers, dashboard | [x] | desktop suite (51 tests) plus the live `/ai/*` draft and price band wired into the wizard |
 | 8 | Customer experience: discovery, booking, reviews | [x] | journey steps [3]–[6] — booking, review, dashboards, notifications, RBAC denials |
 | 9 | Desktop: Tauri + React production integration, Windows build | [~] | `npm run build` green; the Windows installer is not produced on this box (Rust release build needs more free disk than F: has) |
 | 10 | Mobile: Flutter app + Android release | [~] | 13 flutter tests pass (8 domain + 5 widget) and the debug build lands; `assembleRelease` needs the Gradle SDK home on an unmounted volume, so the signed APK is a CI job |
 | 11 | AI/Data: search, draft, pricing, insights, copilot | [x] | 31 offline algorithm tests + 10 `/ai/*` endpoint tests; prose fixes re-proven through HTTP |
-| 12 | Admin: platform operations | [~] | admin/promotions/roles APIs are tested in `backend/tests/`; there is no admin screen in either client |
+| 12 | Admin: platform operations | [x] | the six admin screens exist in `desktop/src/features/admin/pages/` and were rendered against a live server in a real browser per role (platform admin sees all six with data, support reaches only the dispute queue, customer is redirected from every one); `desktop/src/__tests__/admin-access.test.tsx` (9 tests) pins that gate, and `npx vitest run` → 51 passed |
 | 13 | QA/Security: suites and live verification | [x] | security matrix 33/33 against a running server; error taxonomy, tenant isolation, rotation, burst limiting |
-| 14 | Performance: load, indexes, query budgets | [ ] | not started |
+| 14 | Performance: load, indexes, query budgets | [x] | `bash infrastructure/scripts/perf_gate.sh` — 8 measured p95s inside budget on a 40,000-booking corpus, each with its `EXPLAIN (ANALYZE, BUFFERS)`; numbers and limits in `docs/TESTING_STRATEGY.md` |
 | 15 | Release: artifacts, changelog, tags | [ ] | blocked on 9, 10 and the CI gate |
 
 ## Phase 0 — Foundation  [~]

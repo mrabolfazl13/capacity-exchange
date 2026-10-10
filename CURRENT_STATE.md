@@ -37,9 +37,17 @@ pgserver (embedded PostgreSQL), jobs run via CELERY_MODE=local fallback.
       description, and pricing shows the market band beside the provider's own field. All three
       are advisory — no panel can prefill what it did not read.
 - [x] Integration gate run against a live backend on pgserver PostgreSQL 16.2, re-run 2026-10-10:
-      `pytest` 403 (backend) + 31 (ai) + 13 (flutter) + 42 (vitest); live journey 39/39;
+      `pytest` 403 (backend) + 31 (ai) + 13 (flutter) + 51 (vitest); live journey 39/39;
       concurrency race PASS (capacity 3, 12 attempters → exactly 3 grants, 3 units server-side);
       security matrix 33/33. Commands and the honest gaps are in docs/TESTING_STRATEGY.md.
+
+- [x] Admin surface in the desktop client: six platform-operations screens (users, providers,
+      disputes, audit log, categories, promotions) over the tested `/admin/*` APIs, gated by role
+      in the route and in the sidebar. Proven per role in a real browser against a live server,
+      and the gate itself is pinned by `desktop/src/__tests__/admin-access.test.tsx`.
+- [x] Performance layer: `bash infrastructure/scripts/perf_gate.sh` — 8 measured p95s inside
+      budget on a 40,000-booking corpus, with booking exactness asserted at volume and an
+      `EXPLAIN (ANALYZE, BUFFERS)` printed for every measurement.
 
 ## In Progress
 - [ ] Desktop Windows installer (Tauri build) — code and `npm run build` are green; the
@@ -48,7 +56,6 @@ pgserver (embedded PostgreSQL), jobs run via CELERY_MODE=local fallback.
 - [ ] CI/CD build & release recovery — the workflows are tracked and the layers that found the
       bugs run in CI; what is left is a green live gate on the seed fixes, then the `v1.0.0` tag
       and the release per docs/RELEASE.md
-- [ ] Admin surface: the platform-operations APIs are tested; no client screen exists yet
 
 ## Blocked
 - Mobile Android release build: the Gradle SDK home and `GRADLE_USER_HOME` this project is
@@ -59,7 +66,7 @@ pgserver (embedded PostgreSQL), jobs run via CELERY_MODE=local fallback.
   storage.
 - Desktop Windows installer: `cargo` release linking is OOM-killed on this box and F: has ~2 GB
   free after the target directory was cleared, so the MSI is cut in CI rather than here. The
-  TypeScript side builds (`npm run build`) and its 42 tests pass.
+  TypeScript side builds (`npm run build`) and its 51 tests pass.
 
 ## Agent incidents (operational note)
 The session that carried the first agent batch was restarted; the backend and AI
@@ -76,11 +83,52 @@ committed.
 - main agent → contracts, e2e harness, CI, integration gate, docs
 
 ## Next Sync Point
-Everything that can run on this machine has been run and is green. The next step is the build
-phase per the CI/CD protocol: commit `.github/workflows/`, let CI produce the two artifacts this
-box cannot (Windows installer, signed APK), and cut the release from a run that fails honestly —
-no `|| true`, no `continue-on-error`, no deleted feature to make a build pass. After that:
-performance (phase 14) and the admin screen (phase 12) are the only phases left with no evidence.
+Every phase in `IMPLEMENTATION_PLAN.md` now has evidence: the performance layer is measured and the
+admin surface is proven in a browser (see the two handoffs below). What is left is the build phase
+per the CI/CD protocol: let CI produce the two artifacts this box cannot (Windows installer, signed
+APK), and cut the release from a run that fails honestly — no `|| true`, no `continue-on-error`, no
+deleted feature to make a build pass.
+
+## Handoff — performance layer (performance/release) (2026-10-11)
+- Files changed: `tests/perf/volume.py` (new), `tests/perf/bench.py` (new),
+  `infrastructure/scripts/perf_api.py` (new), `infrastructure/scripts/perf_gate.sh` (new),
+  `docs/TESTING_STRATEGY.md` (layer 5 replaces "planned, not started"), `README.md`,
+  `IMPLEMENTATION_PLAN.md` (phase 14 [x], phase 2 evidence corrected to the suite that runs).
+- APIs/contracts changed: none. No route, schema or error code moved; the backend suite was not
+  touched and still passes unchanged.
+- Migrations added: none. The gate builds its own `capacity_perf` database through `alembic
+  upgrade head`, so it cannot be confused with seeded demo data.
+- Tests run: the gate end to end at 60 samples — 8 of 8 p95 inside budget, contention proven by
+  assertion (12 parallel holds on 6 free units → 6 grants, 6 `no_availability`, 6/6 conversions,
+  window then full, 13th refused). Numbers, EXPLAIN evidence and the limits of the claim are in
+  `docs/TESTING_STRATEGY.md`.
+- Known issues: `search?from&to` answers in ~700 ms because it fans out ~2,400 tiny queries over
+  the candidate page; inside its budget, and the honest fix (bulk-load the page's definitions,
+  rules and commitments) touches the shared availability engine, so it is recorded not done. The
+  local job runner in the API process logs a ProactorEventLoop warning per job on Windows; the
+  runner itself works and no endpoint depends on it.
+- Next dependent task: phase 12, the admin surface in `desktop/`.
+
+## Handoff — admin surface, proven per role (desktop/QA) (2026-10-11)
+- Files changed: `desktop/src/__tests__/admin-access.test.tsx` (new, 9 tests), `README.md`,
+  `IMPLEMENTATION_PLAN.md` (phase 12 [x], phase 7 evidence count), `docs/TESTING_STRATEGY.md`
+  (layer 3 count and the new §4b browser record), `CURRENT_STATE.md`. The six screens themselves
+  (`desktop/src/features/admin/pages/*.tsx`), the `/admin/*` client in `desktop/src/api/endpoints.ts`,
+  the `RequireRole` gate and the role-filtered sidebar were already committed; this task proved them
+  rather than adding to them.
+- APIs/contracts changed: none. No route, DTO or role definition moved; the backend was not touched.
+- Migrations added: none.
+- Tests run: `npx vitest run` → 51 passed (42 before: 9 new cases pin the gate — a platform admin
+  reaches all six screens, a support account reaches the dispute queue and nothing else, a customer
+  reaches none, and the sidebar offers exactly the links the guard allows). `tsc -b` exit 0. Then
+  every screen was opened in a real browser against the live API on the seeded demo database and the
+  rows it rendered were counted per role (§4b of `docs/TESTING_STRATEGY.md`).
+- Known issues: the browser pass was driven by a throwaway CDP script on this box, not a committed
+  harness, so it is evidence for today's SHA rather than a CI gate — the nine vitest tests are what
+  CI can re-run. Mobile has no admin surface; support and platform operations are desktop-only by
+  design.
+- Next dependent task: #11 — the release. Everything the platform-operations phase needed was proven;
+  the only phases still `[~]` (9, 10) are waiting on CI to produce the installer and the signed APK.
 
 ## Handoff — seed clock independence (backend) (2026-10-10)
 - Files changed: `backend/scripts/seed.py` (`_clock_window` enumerates the whole hour range,

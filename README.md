@@ -76,7 +76,7 @@ emulator host, which is why the release workflow refuses to build one against an
 ```
 bash infrastructure/scripts/test_backend.sh     # 403 tests, real PostgreSQL, no Redis required
 cd ai && python -m pytest -q                    # 31 algorithm tests, no database at all
-cd desktop && npx vitest run                    # 42 tests (npm test opens watch mode)
+cd desktop && npx vitest run                    # 51 tests (npm test opens watch mode)
 cd mobile && flutter test                       # 13 tests
 ```
 
@@ -92,6 +92,17 @@ The race is the one that matters most: 12 simultaneous holds against capacity 3 
 exactly 3 and refuse the rest with `no_availability`, and the provider's own workspace view must
 agree. `.github/workflows/ci.yml` runs all of the above on every push; `release.yml` builds the
 installers and signed Android artifacts for a `v*` tag.
+
+The performance layer measures itself, against a generated 40,000-booking corpus in its own
+database:
+
+```
+bash infrastructure/scripts/perf_gate.sh              # ~2 min, needs dev_up.sh running
+```
+
+It prints `EXPLAIN (ANALYZE, BUFFERS)` for every statement it times and a p50/p95 table, and exits
+non-zero if any p95 leaves its budget. The numbers it produced are recorded in
+`docs/TESTING_STRATEGY.md`, together with what they do and do not say about scale.
 
 ## Agent operating rules
 
