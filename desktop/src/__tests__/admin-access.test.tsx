@@ -89,7 +89,9 @@ function navFor(roles: RoleKey[]) {
   );
 }
 
-const ADMIN_LINKS = ['Users', 'Providers', 'Disputes', 'Audit Log', 'Categories', 'Promotions'];
+const ADMIN_LINKS = [
+  'Analytics', 'Users', 'Providers', 'Disputes', 'Audit Log', 'Categories', 'Promotions',
+];
 
 describe('RequireRole', () => {
   it('lets a platform admin through to a platform-only screen', () => {

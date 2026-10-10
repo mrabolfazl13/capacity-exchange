@@ -24,6 +24,7 @@ import { ProviderBookingsPage } from '@/features/provider/pages/ProviderBookings
 import { ProviderReviewsPage } from '@/features/provider/pages/ProviderReviewsPage';
 import { CapacityWizardPage } from '@/features/provider/pages/CapacityWizardPage';
 import { AdminUsersPage } from '@/features/admin/pages/AdminUsersPage';
+import { AdminAnalyticsPage } from '@/features/admin/pages/AdminAnalyticsPage';
 import { AdminProvidersPage } from '@/features/admin/pages/AdminProvidersPage';
 import { AdminDisputesPage } from '@/features/admin/pages/AdminDisputesPage';
 import { AdminAuditPage } from '@/features/admin/pages/AdminAuditPage';
@@ -119,6 +120,14 @@ export function App() {
           }
         />
 
+        <Route
+          path="/admin/analytics"
+          element={
+            <RequireRole roles={[...ADMIN_ROLES]}>
+              <AdminAnalyticsPage />
+            </RequireRole>
+          }
+        />
         <Route
           path="/admin/users"
           element={

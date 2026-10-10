@@ -14,6 +14,7 @@ const fa: Partial<Record<MessageKey, string>> = {
   'nav.dashboard': 'داشبورد',
   'nav.provider': 'فضای ارائه‌دهنده',
   'nav.admin': 'مدیریت',
+  'nav.adminAnalytics': 'تحلیل‌ها',
   'nav.logout': 'خروج',
   'nav.language': 'زبان',
 

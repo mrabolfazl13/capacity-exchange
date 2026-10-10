@@ -77,6 +77,7 @@ export function AppLayout() {
             <NavItem to="/admin/disputes" label={t('nav.adminDisputes')} icon="⚠" />
             {isAdminUser(user) ? (
               <>
+                <NavItem to="/admin/analytics" label={t('nav.adminAnalytics')} icon="◠" />
                 <NavItem to="/admin/users" label={t('nav.adminUsers')} icon="◇" />
                 <NavItem to="/admin/providers" label={t('nav.adminProviders')} icon="□" />
                 <NavItem to="/admin/audit-logs" label={t('nav.adminAudit')} icon="≡" />
