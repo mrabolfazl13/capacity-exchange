@@ -226,8 +226,14 @@ jobs:
         working-directory: desktop
         run: |
           set -euo pipefail
-          test -s src-tauri/target/release/capacity-exchange-desktop
-          file src-tauri/target/release/capacity-exchange-desktop
+          bin=src-tauri/target/release/capacity-exchange-desktop
+          ls -lh "$bin"
+          # `test -s` alone would pass on a truncated or stale file. Assert what the compiler
+          # actually produces here: a linked ELF executable, and big enough that it cannot be a stub.
+          find src-tauri/target/release -maxdepth 1 -name capacity-exchange-desktop -size +200k \
+            -print -quit | grep -q .
+          info=$(file "$bin"); echo "$info"
+          printf '%s' "$info" | grep -q 'ELF .* executable'
 
   mobile-android:
     name: mobile (flutter analyze + test + apk)

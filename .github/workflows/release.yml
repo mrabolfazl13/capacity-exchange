@@ -143,8 +143,12 @@ jobs:
         working-directory: desktop
         run: |
           set -euo pipefail
-          test -s src-tauri/target/release/capacity-exchange-desktop
-          file src-tauri/target/release/capacity-exchange-desktop
+          bin=src-tauri/target/release/capacity-exchange-desktop
+          ls -lh "$bin"
+          find src-tauri/target/release -maxdepth 1 -name capacity-exchange-desktop -size +200k \
+            -print -quit | grep -q .
+          info=$(file "$bin"); echo "$info"
+          printf '%s' "$info" | grep -q 'ELF .* executable'
 
   android-release:
     name: android release (apk + aab)
