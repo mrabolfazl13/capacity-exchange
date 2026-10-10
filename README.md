@@ -74,7 +74,7 @@ emulator host, which is why the release workflow refuses to build one against an
 ## Test it
 
 ```
-bash infrastructure/scripts/test_backend.sh     # 97 tests, real PostgreSQL, no Redis required
+bash infrastructure/scripts/test_backend.sh     # 403 tests, real PostgreSQL, no Redis required
 cd ai && python -m pytest -q                    # 31 algorithm tests, no database at all
 cd desktop && npx vitest run                    # 42 tests (npm test opens watch mode)
 cd mobile && flutter test                       # 13 tests

@@ -23,7 +23,7 @@ each platform demands its own:
 ## Cutting a release
 
 1. Everything that can run locally is green (see `docs/TESTING_STRATEGY.md` for the commands):
-   `ai` 31, `backend` 97, `desktop` 42, `mobile` 13, and the live trio journey 39 / race PASS /
+   `ai` 31, `backend` 403, `desktop` 42, `mobile` 13, and the live trio journey 39 / race PASS /
    matrix 33.
 2. Configure the repository once:
    - **variable** `API_BASE_URL` — the URL the shipped clients call. `prepare` refuses an unset
